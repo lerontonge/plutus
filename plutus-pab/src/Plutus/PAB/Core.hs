@@ -42,7 +42,6 @@ module Plutus.PAB.Core
     , runPAB
     , PABEnvironment(appEnv)
     -- * Contracts and instances
-    , installContract
     , reportContractState
     , activateContract
     , callEndpointOnInstance
@@ -400,16 +399,6 @@ data EffectHandlers t env =
         -- | Action to run on shutdown
         , onShutdown :: PABAction t env ()
         }
-
--- | Install a contract by saving its definition in the contract definition
---   store.
-installContract ::
-    forall t effs.
-    ( Member (ContractDefinitionStore t) effs
-    )
-    => (ContractDef t)
-    -> Eff effs ()
-installContract contractHandle = addDefinition @t contractHandle
 
 -- | Report the state of a running contract.
 reportContractState ::

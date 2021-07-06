@@ -1,8 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE ConstraintKinds     #-}
 {-# LANGUAGE DataKinds           #-}
-{-# LANGUAGE DeriveAnyClass      #-}
-{-# LANGUAGE DeriveGeneric       #-}
 {-# LANGUAGE DerivingStrategies  #-}
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE GADTs               #-}
@@ -41,6 +39,7 @@ import qualified Data.Aeson                                       as JSON
 import           Data.Bifunctor                                   (Bifunctor (..))
 import           Data.Foldable                                    (traverse_)
 import           Data.Row
+import           Data.Text.Prettyprint.Doc                        (Pretty, pretty, viaShow, (<+>))
 
 import           Plutus.Contract.Effects                          (PABReq, PABResp)
 import           Plutus.Contract.Types                            (ResumableResult (..), SuspendedContract (..))
@@ -92,6 +91,10 @@ instance PABContract (Builtin a) where
     type ContractDef (Builtin a) = a
     type State (Builtin a) = SomeBuiltinState a
     serialisableState _ = getResponse
+
+-- TODO Builtin has no constructor so...how?
+-- instance Pretty (Builtin a) where
+--   pretty a = viaShow a
 
 -- | Handle the 'ContractEffect' for a builtin contract type with parameter
 --   @a@.

@@ -1,18 +1,15 @@
-{-# LANGUAGE DataKinds            #-}
-{-# LANGUAGE DeriveAnyClass       #-}
-{-# LANGUAGE FlexibleContexts     #-}
-{-# LANGUAGE FlexibleInstances    #-}
-{-# LANGUAGE GADTs                #-}
-{-# LANGUAGE ImpredicativeTypes   #-}
-{-# LANGUAGE KindSignatures       #-}
-{-# LANGUAGE LambdaCase           #-}
-{-# LANGUAGE OverloadedStrings    #-}
-{-# LANGUAGE RankNTypes           #-}
-{-# LANGUAGE TemplateHaskell      #-}
-{-# LANGUAGE TypeApplications     #-}
-{-# LANGUAGE TypeFamilies         #-}
-{-# LANGUAGE TypeOperators        #-}
-{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE DataKinds          #-}
+{-# LANGUAGE DeriveAnyClass     #-}
+{-# LANGUAGE FlexibleContexts   #-}
+{-# LANGUAGE FlexibleInstances  #-}
+{-# LANGUAGE GADTs              #-}
+{-# LANGUAGE ImpredicativeTypes #-}
+{-# LANGUAGE LambdaCase         #-}
+{-# LANGUAGE OverloadedStrings  #-}
+{-# LANGUAGE TemplateHaskell    #-}
+{-# LANGUAGE TypeApplications   #-}
+{-# LANGUAGE TypeFamilies       #-}
+{-# LANGUAGE TypeOperators      #-}
 {-# options_ghc -Wno-missing-signatures #-}
 
 {-
@@ -33,48 +30,48 @@ track changes over time.
 
 module Plutus.PAB.Effects.DbStore where
 
-import           Cardano.BM.Trace                        (Trace, logDebug)
-import           Control.Monad.Freer                     (Eff, LastMember, Member, type (~>))
-import           Control.Monad.Freer.Reader              (Reader, ask)
-import           Control.Monad.Freer.TH                  (makeEffect)
-import           Data.Text                               (Text)
+import           Cardano.BM.Trace                    (Trace, logDebug)
+import           Control.Monad.Freer                 (Eff, LastMember, Member, type (~>))
+import           Control.Monad.Freer.Reader          (Reader, ask)
+import           Control.Monad.Freer.TH              (makeEffect)
+import           Data.Text                           (Text)
 import           Database.Beam
 import           Database.Beam.Backend.SQL
 import           Database.Beam.Migrate
 import           Database.Beam.Schema.Tables
 import           Database.Beam.Sqlite
-import           Database.SQLite.Simple                  (Connection)
-import           Plutus.PAB.Effects.Contract.ContractExe (ContractExe)
-import           Plutus.PAB.Monitoring.PABLogMsg         (PABLogMsg (..), PABMultiAgentMsg (..))
+import           Database.SQLite.Simple              (Connection)
+import           Plutus.PAB.Effects.Contract.Builtin (Builtin)
+import           Plutus.PAB.Monitoring.PABLogMsg     (PABLogMsg (..), PABMultiAgentMsg (..))
 
-data ContractT f
+newtype ContractT f
     = Contract
-    { _contractPath :: Columnar f Text
+    { _contractId :: Columnar f Text
     }
     deriving (Generic, Beamable)
 
-Contract (LensFor contractPath) = tableLenses
+Contract (LensFor contractId) = tableLenses
 
 type Contract   = ContractT Identity
 type ContractId = PrimaryKey ContractT Identity
 
 instance Table ContractT where
   data PrimaryKey ContractT f = ContractId (Columnar f Text) deriving (Generic, Beamable)
-  primaryKey = ContractId . _contractPath
+  primaryKey = ContractId . _contractId
 
 
 data ContractInstanceT f
   = ContractInstance
-    { _contractInstanceId           :: Columnar f Text
-    , _contractInstanceContractPath :: PrimaryKey ContractT f
-    , _contractInstanceWallet       :: Columnar f Text -- Note: Sqlite doesn't have a integer type large enough.
-    , _contractInstanceState        :: Columnar f (Maybe Text)
-    , _contractInstanceActive       :: Columnar f Bool
+    { _contractInstanceId         :: Columnar f Text
+    , _contractInstanceContractId :: PrimaryKey ContractT f
+    , _contractInstanceWallet     :: Columnar f Text -- Note: Sqlite doesn't have a integer type large enough.
+    , _contractInstanceState      :: Columnar f (Maybe Text)
+    , _contractInstanceActive     :: Columnar f Bool
     } deriving (Generic, Beamable)
 
 ContractInstance
   (LensFor contractInstanceId)
-  (ContractId (LensFor contractInstanceContractPath))
+  (ContractId (LensFor contractInstanceContractId))
   (LensFor contractInstanceWallet)
   (LensFor contractInstanceState)
   (LensFor contractInstanceActive)
@@ -136,11 +133,11 @@ data DbStoreEffect r where
     -> DbStoreEffect (Maybe (table Identity))
 
 handleDbStore ::
-  forall effs.
+  forall a effs.
   ( Member (Reader Connection) effs
   , LastMember IO effs
   )
-  => Trace IO (PABLogMsg ContractExe)
+  => Trace IO (PABLogMsg (Builtin a))
   -> DbStoreEffect
   ~> Eff effs
 handleDbStore trace eff = do

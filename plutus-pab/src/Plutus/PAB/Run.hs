@@ -6,15 +6,13 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NamedFieldPuns        #-}
 {-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TypeOperators         #-}
 
-module Main
-    ( main
-    ) where
-
-import           Cli
-import           Command                             (NoConfigCommand (..))
-import           CommandParser
+module Plutus.PAB.Run
+( runWith
+) where
 
 import qualified Cardano.BM.Backend.EKGView          as EKGView
 import qualified Cardano.BM.Configuration.Model      as CM
@@ -23,37 +21,57 @@ import           Cardano.BM.Plugin                   (loadPlugin)
 import           Cardano.BM.Setup                    (setupTrace_)
 import           Control.Concurrent.Availability     (newToken)
 import           Control.Monad                       (when)
+import           Control.Monad.Freer                 (Eff, type (~>))
 import           Control.Monad.IO.Class              (liftIO)
 import           Control.Monad.Logger                (logErrorN, runStdoutLoggingT)
+import           Data.Aeson                          (FromJSON, ToJSON)
 import           Data.Foldable                       (for_)
 import           Data.Text.Extras                    (tshow)
 import           Data.Yaml                           (decodeFileThrow)
-import           Plutus.PAB.Effects.Contract.Builtin (Builtin)
+import           Plutus.PAB.Effects.Contract         (ContractEffect (..))
+import           Plutus.PAB.Effects.Contract.Builtin (Builtin, SomeBuiltin (..))
 import           Plutus.PAB.Monitoring.Config        (defaultConfig, loadConfig)
 import           Plutus.PAB.Monitoring.PABLogMsg     (AppMsg (..))
 import           Plutus.PAB.Monitoring.Util          (PrettyObject (..), convertLog)
+import           Plutus.PAB.Run.Cli
+import           Plutus.PAB.Run.Command              (ConfigCommand (..))
+import           Plutus.PAB.Run.CommandParser
 import           Plutus.PAB.Types                    (PABError (MissingConfigFileOption))
+import           Prettyprinter                       (Pretty)
 import           System.Exit                         (ExitCode (ExitFailure), exitSuccess, exitWith)
 
-main :: IO ()
-main = do
-    AppOpts { minLogLevel, logConfigPath, runEkgServer, cmd, storageBackend } <- parseOptions
+runWith :: forall a effs. (Ord a, FromJSON a, ToJSON a, Pretty a) => (ContractEffect (Builtin a) ~> Eff effs) -> IO ()
+runWith userContractHandler = do
+    AppOpts { minLogLevel, logConfigPath, runEkgServer, cmd, configPath, storageBackend } <- parseOptions
 
     -- Parse config files and initialize logging
     logConfig <- maybe defaultConfig loadConfig logConfigPath
     for_ minLogLevel $ \ll -> CM.setMinSeverity logConfig ll
-    (trace :: Trace IO (PrettyObject (AppMsg (Builtin a))), switchboard) <- undefined -- setupTrace_ logConfig "pab"
-    return ()
+    -- TODO: Implement Pretty instance for Builtin a
+    -- (trace :: Trace IO (PrettyObject (AppMsg (Builtin a))), switchboard) <- setupTrace_ logConfig "pab"
 
-    -- TODO Can't compile next line
     -- -- enable EKG backend
     -- when runEkgServer $ EKGView.plugin logConfig trace switchboard >>= loadPlugin switchboard
 
     -- -- obtain token for signaling service readiness
     -- serviceAvailability <- newToken
 
-    -- -- execute parsed pab command and handle errors on failure
-    -- result <- Right <$> runNoConfigCommand (convertLog PrettyObject trace) cmd
+    -- -- execute parsed pab command and handle errors on faliure
+    -- result <- case cmd of
+    --             WithConfig command -> do
+    --                 case configPath of
+    --                     Nothing -> pure $ Left MissingConfigFileOption
+    --                     Just p -> do
+    --                         config <- liftIO $ decodeFileThrow p
+    --                         let args = ConfigCommandArgs
+    --                                     { ccaTrace = convertLog PrettyObject trace
+    --                                     , ccaLoggingConfig = logConfig
+    --                                     , ccaPABConfig = config
+    --                                     , ccaAvailability = serviceAvailability
+    --                                     , ccaStorageBackend = storageBackend
+    --                                     }
+    --                         Right <$> runConfigCommand args command
+    --             WithoutConfig command -> Right <$> runNoConfigCommand (convertLog PrettyObject trace) command
     -- either handleError (const exitSuccess) result
 
     --     where

@@ -55,7 +55,7 @@ handleContractStore ::
     ( LastMember IO effs
     , Member (Reader (InMemInstances t)) effs
     , Member (Error PABError) effs
-    , State t ~ ContractResponse Value Value Value PABReq
+    -- , State t ~ ContractResponse Value Value Value PABReq -- TODO Validate that it's okay to remove that. The Builtin uses 'SomeBuiltinState' instead of 'ContractResponse
     )
     => ContractStore t
     ~> Eff effs
