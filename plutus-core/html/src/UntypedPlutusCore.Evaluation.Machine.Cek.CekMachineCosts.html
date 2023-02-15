@@ -29,7 +29,7 @@
 </span><span id="line-27"></span><span>
 </span><span id="line-28"></span><span class="hs-comment">-- | Costs for evaluating AST nodes.  Times should be specified in picoseconds, memory sizes in bytes.</span><span>
 </span><span id="line-29"></span><span>
-</span><span id="line-30"></span><span id="local-6989586621681167574"><span id="local-6989586621681167575"></span></span><span class="hs-keyword">data</span><span> </span><span id="CekMachineCosts"><span class="annot"><a href="UntypedPlutusCore.Evaluation.Machine.Cek.CekMachineCosts.html#CekMachineCosts"><span class="hs-identifier hs-var">CekMachineCosts</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-30"></span><span id="local-6989586621681170446"><span id="local-6989586621681170447"></span></span><span class="hs-keyword">data</span><span> </span><span id="CekMachineCosts"><span class="annot"><a href="UntypedPlutusCore.Evaluation.Machine.Cek.CekMachineCosts.html#CekMachineCosts"><span class="hs-identifier hs-var">CekMachineCosts</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
 </span><span id="line-31"></span><span>    </span><span id="CekMachineCosts"><span class="annot"><a href="UntypedPlutusCore.Evaluation.Machine.Cek.CekMachineCosts.html#CekMachineCosts"><span class="hs-identifier hs-var">CekMachineCosts</span></a></span></span><span> </span><span class="hs-special">{</span><span>
 </span><span id="line-32"></span><span>      </span><span id="cekStartupCost"><span class="annot"><span class="annottext">CekMachineCosts -&gt; ExBudget
 </span><a href="UntypedPlutusCore.Evaluation.Machine.Cek.CekMachineCosts.html#cekStartupCost"><span class="hs-identifier hs-var hs-var">cekStartupCost</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="PlutusCore.Evaluation.Machine.ExBudget.html#ExBudget"><span class="hs-identifier hs-type">ExBudget</span></a></span><span>  </span><span class="hs-comment">-- General overhead</span><span>
@@ -51,13 +51,13 @@
 </span><span id="line-41"></span><span>    </span><span class="hs-comment">-- There's no entry for Error since we'll be exiting anyway; also, what would</span><span>
 </span><span id="line-42"></span><span>    </span><span class="hs-comment">-- happen if calling 'Error' caused the budget to be exceeded?</span><span>
 </span><span id="line-43"></span><span>    </span><span class="hs-special">}</span><span>
-</span><span id="line-44"></span><span>    </span><span class="hs-keyword">deriving</span><span> </span><span class="annot"><span class="hs-keyword">stock</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621681167552"><span id="local-6989586621681167563"><span class="annot"><span class="annottext">CekMachineCosts -&gt; CekMachineCosts -&gt; Bool
+</span><span id="line-44"></span><span>    </span><span class="hs-keyword">deriving</span><span> </span><span class="annot"><span class="hs-keyword">stock</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621681170424"><span id="local-6989586621681170435"><span class="annot"><span class="annottext">CekMachineCosts -&gt; CekMachineCosts -&gt; Bool
 forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
 /= :: CekMachineCosts -&gt; CekMachineCosts -&gt; Bool
 $c/= :: CekMachineCosts -&gt; CekMachineCosts -&gt; Bool
 == :: CekMachineCosts -&gt; CekMachineCosts -&gt; Bool
 $c== :: CekMachineCosts -&gt; CekMachineCosts -&gt; Bool
-</span><a href="../../../../ghc/html/libraries/ghc-prim-0.8.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></a></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621681167534"><span id="local-6989586621681167536"><span id="local-6989586621681167549"><span class="annot"><span class="annottext">Int -&gt; CekMachineCosts -&gt; ShowS
+</span><a href="../../../../ghc/html/libraries/ghc-prim-0.8.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></a></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621681170406"><span id="local-6989586621681170408"><span id="local-6989586621681170421"><span class="annot"><span class="annottext">Int -&gt; CekMachineCosts -&gt; ShowS
 [CekMachineCosts] -&gt; ShowS
 CekMachineCosts -&gt; String
 forall a.
@@ -74,7 +74,7 @@ forall a.
 (forall x. a -&gt; Rep a x) -&gt; (forall x. Rep a x -&gt; a) -&gt; Generic a
 $cto :: forall x. Rep CekMachineCosts x -&gt; CekMachineCosts
 $cfrom :: forall x. CekMachineCosts -&gt; Rep CekMachineCosts x
-</span><a href="../../../../ghc/html/libraries/base-4.16.4.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">Generic</span></a></span><span class="hs-special">,</span><span> </span><span id="local-6989586621681167507"><span id="local-6989586621681167528"><span class="annot"><span class="annottext">forall t.
+</span><a href="../../../../ghc/html/libraries/base-4.16.4.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">Generic</span></a></span><span class="hs-special">,</span><span> </span><span id="local-6989586621681170379"><span id="local-6989586621681170400"><span class="annot"><span class="annottext">forall t.
 (forall (m :: * -&gt; *). Quote m =&gt; t -&gt; m Exp)
 -&gt; (forall (m :: * -&gt; *). Quote m =&gt; t -&gt; Code m t) -&gt; Lift t
 forall (m :: * -&gt; *). Quote m =&gt; CekMachineCosts -&gt; m Exp
@@ -90,11 +90,11 @@ CekMachineCosts -&gt; Code m CekMachineCosts
 lift :: forall (m :: * -&gt; *). Quote m =&gt; CekMachineCosts -&gt; m Exp
 $clift :: forall (m :: * -&gt; *). Quote m =&gt; CekMachineCosts -&gt; m Exp
 </span><a href="../../../../ghc/html/libraries/template-haskell-2.18.0.0/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Lift</span></a></span></span></span><span class="hs-special">)</span><span>
-</span><span id="line-45"></span><span>    </span><span class="hs-keyword">deriving</span><span> </span><span class="annot"><span class="hs-keyword">anyclass</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621681167485"><span class="annot"><span class="annottext">CekMachineCosts -&gt; ()
+</span><span id="line-45"></span><span>    </span><span class="hs-keyword">deriving</span><span> </span><span class="annot"><span class="hs-keyword">anyclass</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621681170357"><span class="annot"><span class="annottext">CekMachineCosts -&gt; ()
 forall a. (a -&gt; ()) -&gt; NFData a
 rnf :: CekMachineCosts -&gt; ()
 $crnf :: CekMachineCosts -&gt; ()
-</span><a href="../../../../ghc/html/libraries/deepseq-1.4.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">NFData</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621681167478"><span id="local-6989586621681167480"><span id="local-6989586621681167482"><span class="annot"><span class="annottext">Context -&gt; CekMachineCosts -&gt; IO (Maybe ThunkInfo)
+</span><a href="../../../../ghc/html/libraries/deepseq-1.4.6.1/src"><span class="hs-identifier hs-var hs-var hs-var hs-var">NFData</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621681170350"><span id="local-6989586621681170352"><span id="local-6989586621681170354"><span class="annot"><span class="annottext">Context -&gt; CekMachineCosts -&gt; IO (Maybe ThunkInfo)
 Proxy CekMachineCosts -&gt; String
 forall a.
 (Context -&gt; a -&gt; IO (Maybe ThunkInfo))
@@ -108,7 +108,7 @@ $cwNoThunks :: Context -&gt; CekMachineCosts -&gt; IO (Maybe ThunkInfo)
 noThunks :: Context -&gt; CekMachineCosts -&gt; IO (Maybe ThunkInfo)
 $cnoThunks :: Context -&gt; CekMachineCosts -&gt; IO (Maybe ThunkInfo)
 </span><a href="../../../../nothunks/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">NoThunks</span></a></span></span></span></span><span class="hs-special">)</span><span>
-</span><span id="line-46"></span><span>    </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621681167467"><span id="local-6989586621681167475"><span class="annot"><span class="annottext">Value -&gt; Parser [CekMachineCosts]
+</span><span id="line-46"></span><span>    </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621681170339"><span id="local-6989586621681170347"><span class="annot"><span class="annottext">Value -&gt; Parser [CekMachineCosts]
 Value -&gt; Parser CekMachineCosts
 forall a.
 (Value -&gt; Parser a) -&gt; (Value -&gt; Parser [a]) -&gt; FromJSON a
@@ -116,7 +116,7 @@ parseJSONList :: Value -&gt; Parser [CekMachineCosts]
 $cparseJSONList :: Value -&gt; Parser [CekMachineCosts]
 parseJSON :: Value -&gt; Parser CekMachineCosts
 $cparseJSON :: Value -&gt; Parser CekMachineCosts
-</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">FromJSON</span></a></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621681167197"><span id="local-6989586621681167205"><span id="local-6989586621681167213"><span id="local-6989586621681167222"><span class="annot"><span class="annottext">[CekMachineCosts] -&gt; Encoding
+</span><a href="../../../../aeson/html/src"><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">FromJSON</span></a></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621681170069"><span id="local-6989586621681170077"><span id="local-6989586621681170085"><span id="local-6989586621681170094"><span class="annot"><span class="annottext">[CekMachineCosts] -&gt; Encoding
 [CekMachineCosts] -&gt; Value
 CekMachineCosts -&gt; Encoding
 CekMachineCosts -&gt; Value
@@ -144,37 +144,37 @@ $ctoJSON :: CekMachineCosts -&gt; Value
 </span><a href="UntypedPlutusCore.Evaluation.Machine.Cek.CekMachineCosts.html#unitCekMachineCosts"><span class="hs-identifier hs-var hs-var">unitCekMachineCosts</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
 </span><span id="line-53"></span><span>    </span><span class="annot"><a href="UntypedPlutusCore.Evaluation.Machine.Cek.CekMachineCosts.html#CekMachineCosts"><span class="hs-identifier hs-type">CekMachineCosts</span></a></span><span> </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">cekStartupCost :: ExBudget
 </span><a href="UntypedPlutusCore.Evaluation.Machine.Cek.CekMachineCosts.html#cekStartupCost"><span class="hs-identifier hs-var">cekStartupCost</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ExBudget
-</span><a href="#local-6989586621681166240"><span class="hs-identifier hs-var">zeroCost</span></a></span><span>
+</span><a href="#local-6989586621681169112"><span class="hs-identifier hs-var">zeroCost</span></a></span><span>
 </span><span id="line-54"></span><span>                    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">cekVarCost :: ExBudget
 </span><a href="UntypedPlutusCore.Evaluation.Machine.Cek.CekMachineCosts.html#cekVarCost"><span class="hs-identifier hs-var">cekVarCost</span></a></span><span>     </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ExBudget
-</span><a href="#local-6989586621681166239"><span class="hs-identifier hs-var">unitCost</span></a></span><span>
+</span><a href="#local-6989586621681169111"><span class="hs-identifier hs-var">unitCost</span></a></span><span>
 </span><span id="line-55"></span><span>                    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">cekConstCost :: ExBudget
 </span><a href="UntypedPlutusCore.Evaluation.Machine.Cek.CekMachineCosts.html#cekConstCost"><span class="hs-identifier hs-var">cekConstCost</span></a></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ExBudget
-</span><a href="#local-6989586621681166239"><span class="hs-identifier hs-var">unitCost</span></a></span><span>
+</span><a href="#local-6989586621681169111"><span class="hs-identifier hs-var">unitCost</span></a></span><span>
 </span><span id="line-56"></span><span>                    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">cekLamCost :: ExBudget
 </span><a href="UntypedPlutusCore.Evaluation.Machine.Cek.CekMachineCosts.html#cekLamCost"><span class="hs-identifier hs-var">cekLamCost</span></a></span><span>     </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ExBudget
-</span><a href="#local-6989586621681166239"><span class="hs-identifier hs-var">unitCost</span></a></span><span>
+</span><a href="#local-6989586621681169111"><span class="hs-identifier hs-var">unitCost</span></a></span><span>
 </span><span id="line-57"></span><span>                    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">cekDelayCost :: ExBudget
 </span><a href="UntypedPlutusCore.Evaluation.Machine.Cek.CekMachineCosts.html#cekDelayCost"><span class="hs-identifier hs-var">cekDelayCost</span></a></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ExBudget
-</span><a href="#local-6989586621681166239"><span class="hs-identifier hs-var">unitCost</span></a></span><span>
+</span><a href="#local-6989586621681169111"><span class="hs-identifier hs-var">unitCost</span></a></span><span>
 </span><span id="line-58"></span><span>                    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">cekForceCost :: ExBudget
 </span><a href="UntypedPlutusCore.Evaluation.Machine.Cek.CekMachineCosts.html#cekForceCost"><span class="hs-identifier hs-var">cekForceCost</span></a></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ExBudget
-</span><a href="#local-6989586621681166239"><span class="hs-identifier hs-var">unitCost</span></a></span><span>
+</span><a href="#local-6989586621681169111"><span class="hs-identifier hs-var">unitCost</span></a></span><span>
 </span><span id="line-59"></span><span>                    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">cekApplyCost :: ExBudget
 </span><a href="UntypedPlutusCore.Evaluation.Machine.Cek.CekMachineCosts.html#cekApplyCost"><span class="hs-identifier hs-var">cekApplyCost</span></a></span><span>   </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ExBudget
-</span><a href="#local-6989586621681166239"><span class="hs-identifier hs-var">unitCost</span></a></span><span>
+</span><a href="#local-6989586621681169111"><span class="hs-identifier hs-var">unitCost</span></a></span><span>
 </span><span id="line-60"></span><span>                    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">cekBuiltinCost :: ExBudget
 </span><a href="UntypedPlutusCore.Evaluation.Machine.Cek.CekMachineCosts.html#cekBuiltinCost"><span class="hs-identifier hs-var">cekBuiltinCost</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ExBudget
-</span><a href="#local-6989586621681166239"><span class="hs-identifier hs-var">unitCost</span></a></span><span>
+</span><a href="#local-6989586621681169111"><span class="hs-identifier hs-var">unitCost</span></a></span><span>
 </span><span id="line-61"></span><span>                    </span><span class="hs-special">}</span><span>
 </span><span id="line-62"></span><span>        </span><span class="hs-keyword">where</span><span>
-</span><span id="line-63"></span><span>          </span><span id="local-6989586621681166240"><span class="annot"><span class="annottext">zeroCost :: ExBudget
-</span><a href="#local-6989586621681166240"><span class="hs-identifier hs-var hs-var">zeroCost</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ExCPU -&gt; ExMemory -&gt; ExBudget
+</span><span id="line-63"></span><span>          </span><span id="local-6989586621681169112"><span class="annot"><span class="annottext">zeroCost :: ExBudget
+</span><a href="#local-6989586621681169112"><span class="hs-identifier hs-var hs-var">zeroCost</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ExCPU -&gt; ExMemory -&gt; ExBudget
 </span><a href="PlutusCore.Evaluation.Machine.ExBudget.html#ExBudget"><span class="hs-identifier hs-var">ExBudget</span></a></span><span> </span><span class="annot"><span class="annottext">ExCPU
 </span><span class="hs-number">0</span></span><span> </span><span class="annot"><span class="annottext">ExMemory
 </span><span class="hs-number">0</span></span><span>
-</span><span id="line-64"></span><span>          </span><span id="local-6989586621681166239"><span class="annot"><span class="annottext">unitCost :: ExBudget
-</span><a href="#local-6989586621681166239"><span class="hs-identifier hs-var hs-var">unitCost</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ExCPU -&gt; ExMemory -&gt; ExBudget
+</span><span id="line-64"></span><span>          </span><span id="local-6989586621681169111"><span class="annot"><span class="annottext">unitCost :: ExBudget
+</span><a href="#local-6989586621681169111"><span class="hs-identifier hs-var hs-var">unitCost</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ExCPU -&gt; ExMemory -&gt; ExBudget
 </span><a href="PlutusCore.Evaluation.Machine.ExBudget.html#ExBudget"><span class="hs-identifier hs-var">ExBudget</span></a></span><span> </span><span class="annot"><span class="annottext">ExCPU
 </span><span class="hs-number">1</span></span><span> </span><span class="annot"><span class="annottext">ExMemory
 </span><span class="hs-number">0</span></span><span>

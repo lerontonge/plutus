@@ -55,83 +55,83 @@
 </span><a href="PlutusCore.Examples.Data.Data.html#ofoldrData"><span class="hs-identifier hs-var hs-var">ofoldrData</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">forall a. Quote a -&gt; a
 </span><a href="PlutusCore.Quote.html#runQuote"><span class="hs-identifier hs-var">runQuote</span></a></span><span> </span><span class="annot"><span class="annottext">forall a b. (a -&gt; b) -&gt; a -&gt; b
 </span><a href="../../../../ghc/html/libraries/base-4.16.4.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="hs-keyword">do</span><span>
-</span><span id="line-55"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621681162702"><span class="annot"><span class="annottext">r :: Type TyName DefaultUni ()
-</span><a href="#local-6989586621681162702"><span class="hs-identifier hs-var hs-var">r</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">forall (uni :: * -&gt; *). Contains uni Data =&gt; Type TyName uni ()
+</span><span id="line-55"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621681165574"><span class="annot"><span class="annottext">r :: Type TyName DefaultUni ()
+</span><a href="#local-6989586621681165574"><span class="hs-identifier hs-var hs-var">r</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">forall (uni :: * -&gt; *). Contains uni Data =&gt; Type TyName uni ()
 </span><a href="PlutusCore.StdLib.Data.Data.html#dataTy"><span class="hs-identifier hs-var">dataTy</span></a></span><span>
-</span><span id="line-56"></span><span>    </span><span id="local-6989586621681162700"><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162700"><span class="hs-identifier hs-var">fConstr</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">forall (m :: * -&gt; *). MonadQuote m =&gt; Text -&gt; m Name
+</span><span id="line-56"></span><span>    </span><span id="local-6989586621681165572"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621681165572"><span class="hs-identifier hs-var">fConstr</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">forall (m :: * -&gt; *). MonadQuote m =&gt; Text -&gt; m Name
 </span><a href="PlutusCore.Quote.html#freshName"><span class="hs-identifier hs-var">freshName</span></a></span><span> </span><span class="annot"><span class="annottext">Text
 </span><span class="hs-string">&quot;fConstr&quot;</span></span><span>
-</span><span id="line-57"></span><span>    </span><span id="local-6989586621681162698"><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162698"><span class="hs-identifier hs-var">fMap</span></a></span></span><span>    </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">forall (m :: * -&gt; *). MonadQuote m =&gt; Text -&gt; m Name
+</span><span id="line-57"></span><span>    </span><span id="local-6989586621681165570"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621681165570"><span class="hs-identifier hs-var">fMap</span></a></span></span><span>    </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">forall (m :: * -&gt; *). MonadQuote m =&gt; Text -&gt; m Name
 </span><a href="PlutusCore.Quote.html#freshName"><span class="hs-identifier hs-var">freshName</span></a></span><span> </span><span class="annot"><span class="annottext">Text
 </span><span class="hs-string">&quot;fMap&quot;</span></span><span>
-</span><span id="line-58"></span><span>    </span><span id="local-6989586621681162697"><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162697"><span class="hs-identifier hs-var">fList</span></a></span></span><span>   </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">forall (m :: * -&gt; *). MonadQuote m =&gt; Text -&gt; m Name
+</span><span id="line-58"></span><span>    </span><span id="local-6989586621681165569"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621681165569"><span class="hs-identifier hs-var">fList</span></a></span></span><span>   </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">forall (m :: * -&gt; *). MonadQuote m =&gt; Text -&gt; m Name
 </span><a href="PlutusCore.Quote.html#freshName"><span class="hs-identifier hs-var">freshName</span></a></span><span> </span><span class="annot"><span class="annottext">Text
 </span><span class="hs-string">&quot;fList&quot;</span></span><span>
-</span><span id="line-59"></span><span>    </span><span id="local-6989586621681162696"><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162696"><span class="hs-identifier hs-var">fI</span></a></span></span><span>      </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">forall (m :: * -&gt; *). MonadQuote m =&gt; Text -&gt; m Name
+</span><span id="line-59"></span><span>    </span><span id="local-6989586621681165568"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621681165568"><span class="hs-identifier hs-var">fI</span></a></span></span><span>      </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">forall (m :: * -&gt; *). MonadQuote m =&gt; Text -&gt; m Name
 </span><a href="PlutusCore.Quote.html#freshName"><span class="hs-identifier hs-var">freshName</span></a></span><span> </span><span class="annot"><span class="annottext">Text
 </span><span class="hs-string">&quot;fI&quot;</span></span><span>
-</span><span id="line-60"></span><span>    </span><span id="local-6989586621681162695"><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162695"><span class="hs-identifier hs-var">fB</span></a></span></span><span>      </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">forall (m :: * -&gt; *). MonadQuote m =&gt; Text -&gt; m Name
+</span><span id="line-60"></span><span>    </span><span id="local-6989586621681165567"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621681165567"><span class="hs-identifier hs-var">fB</span></a></span></span><span>      </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">forall (m :: * -&gt; *). MonadQuote m =&gt; Text -&gt; m Name
 </span><a href="PlutusCore.Quote.html#freshName"><span class="hs-identifier hs-var">freshName</span></a></span><span> </span><span class="annot"><span class="annottext">Text
 </span><span class="hs-string">&quot;fB&quot;</span></span><span>
-</span><span id="line-61"></span><span>    </span><span id="local-6989586621681162694"><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162694"><span class="hs-identifier hs-var">rec</span></a></span></span><span>     </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">forall (m :: * -&gt; *). MonadQuote m =&gt; Text -&gt; m Name
+</span><span id="line-61"></span><span>    </span><span id="local-6989586621681165566"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621681165566"><span class="hs-identifier hs-var">rec</span></a></span></span><span>     </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">forall (m :: * -&gt; *). MonadQuote m =&gt; Text -&gt; m Name
 </span><a href="PlutusCore.Quote.html#freshName"><span class="hs-identifier hs-var">freshName</span></a></span><span> </span><span class="annot"><span class="annottext">Text
 </span><span class="hs-string">&quot;rec&quot;</span></span><span>
-</span><span id="line-62"></span><span>    </span><span id="local-6989586621681162693"><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162693"><span class="hs-identifier hs-var">d</span></a></span></span><span>       </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">forall (m :: * -&gt; *). MonadQuote m =&gt; Text -&gt; m Name
+</span><span id="line-62"></span><span>    </span><span id="local-6989586621681165565"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621681165565"><span class="hs-identifier hs-var">d</span></a></span></span><span>       </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">forall (m :: * -&gt; *). MonadQuote m =&gt; Text -&gt; m Name
 </span><a href="PlutusCore.Quote.html#freshName"><span class="hs-identifier hs-var">freshName</span></a></span><span> </span><span class="annot"><span class="annottext">Text
 </span><span class="hs-string">&quot;d&quot;</span></span><span>
-</span><span id="line-63"></span><span>    </span><span id="local-6989586621681162692"><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162692"><span class="hs-identifier hs-var">i</span></a></span></span><span>       </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">forall (m :: * -&gt; *). MonadQuote m =&gt; Text -&gt; m Name
+</span><span id="line-63"></span><span>    </span><span id="local-6989586621681165564"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621681165564"><span class="hs-identifier hs-var">i</span></a></span></span><span>       </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">forall (m :: * -&gt; *). MonadQuote m =&gt; Text -&gt; m Name
 </span><a href="PlutusCore.Quote.html#freshName"><span class="hs-identifier hs-var">freshName</span></a></span><span> </span><span class="annot"><span class="annottext">Text
 </span><span class="hs-string">&quot;i&quot;</span></span><span>
-</span><span id="line-64"></span><span>    </span><span id="local-6989586621681162691"><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162691"><span class="hs-identifier hs-var">ds</span></a></span></span><span>      </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">forall (m :: * -&gt; *). MonadQuote m =&gt; Text -&gt; m Name
+</span><span id="line-64"></span><span>    </span><span id="local-6989586621681165563"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621681165563"><span class="hs-identifier hs-var">ds</span></a></span></span><span>      </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">forall (m :: * -&gt; *). MonadQuote m =&gt; Text -&gt; m Name
 </span><a href="PlutusCore.Quote.html#freshName"><span class="hs-identifier hs-var">freshName</span></a></span><span> </span><span class="annot"><span class="annottext">Text
 </span><span class="hs-string">&quot;ds&quot;</span></span><span>
-</span><span id="line-65"></span><span>    </span><span id="local-6989586621681162690"><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162690"><span class="hs-identifier hs-var">es</span></a></span></span><span>      </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">forall (m :: * -&gt; *). MonadQuote m =&gt; Text -&gt; m Name
+</span><span id="line-65"></span><span>    </span><span id="local-6989586621681165562"><span class="annot"><span class="annottext">Name
+</span><a href="#local-6989586621681165562"><span class="hs-identifier hs-var">es</span></a></span></span><span>      </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">forall (m :: * -&gt; *). MonadQuote m =&gt; Text -&gt; m Name
 </span><a href="PlutusCore.Quote.html#freshName"><span class="hs-identifier hs-var">freshName</span></a></span><span> </span><span class="annot"><span class="annottext">Text
 </span><span class="hs-string">&quot;es&quot;</span></span><span>
-</span><span id="line-66"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621681162687"><span class="annot"><span class="annottext">listData :: Type tyname DefaultUni ()
-</span><a href="#local-6989586621681162687"><span class="hs-identifier hs-var hs-var">listData</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">forall k (a :: k) (uni :: * -&gt; *) tyname ann.
+</span><span id="line-66"></span><span>    </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621681165559"><span class="annot"><span class="annottext">listData :: Type tyname DefaultUni ()
+</span><a href="#local-6989586621681165559"><span class="hs-identifier hs-var hs-var">listData</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">forall k (a :: k) (uni :: * -&gt; *) tyname ann.
 Contains uni a =&gt;
 ann -&gt; Type tyname uni ann
 </span><a href="PlutusCore.MkPlc.html#mkTyBuiltin"><span class="hs-identifier hs-var">mkTyBuiltin</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">@</span><span class="hs-special">[</span><span class="annot"><a href="PlutusCore.Data.html#Data"><span class="hs-identifier hs-type">Data</span></a></span><span class="hs-special">]</span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span>
-</span><span id="line-67"></span><span>        </span><span id="local-6989586621681162684"><span class="annot"><span class="annottext">listR :: Type TyName DefaultUni ()
-</span><a href="#local-6989586621681162684"><span class="hs-identifier hs-var hs-var">listR</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">forall tyname (uni :: * -&gt; *) ann.
+</span><span id="line-67"></span><span>        </span><span id="local-6989586621681165556"><span class="annot"><span class="annottext">listR :: Type TyName DefaultUni ()
+</span><a href="#local-6989586621681165556"><span class="hs-identifier hs-var hs-var">listR</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">forall tyname (uni :: * -&gt; *) ann.
 ann
 -&gt; Type tyname uni ann
 -&gt; Type tyname uni ann
 -&gt; Type tyname uni ann
 </span><a href="PlutusCore.Core.Type.html#TyApp"><span class="hs-identifier hs-var">TyApp</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">forall (uni :: * -&gt; *). Contains uni [] =&gt; Type TyName uni ()
 </span><a href="PlutusCore.StdLib.Data.List.html#list"><span class="hs-identifier hs-var">list</span></a></span><span> </span><span class="annot"><span class="annottext">Type TyName DefaultUni ()
-</span><a href="#local-6989586621681162702"><span class="hs-identifier hs-var">r</span></a></span><span>
-</span><span id="line-68"></span><span>        </span><span id="local-6989586621681162679"><span class="annot"><span class="annottext">opair :: Type TyName uni () -&gt; Type TyName uni ()
-</span><a href="#local-6989586621681162679"><span class="hs-identifier hs-var hs-var">opair</span></a></span></span><span> </span><span id="local-6989586621681162678"><span class="annot"><span class="annottext">Type TyName uni ()
-</span><a href="#local-6989586621681162678"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">forall ann tyname (uni :: * -&gt; *).
+</span><a href="#local-6989586621681165574"><span class="hs-identifier hs-var">r</span></a></span><span>
+</span><span id="line-68"></span><span>        </span><span id="local-6989586621681165551"><span class="annot"><span class="annottext">opair :: Type TyName uni () -&gt; Type TyName uni ()
+</span><a href="#local-6989586621681165551"><span class="hs-identifier hs-var hs-var">opair</span></a></span></span><span> </span><span id="local-6989586621681165550"><span class="annot"><span class="annottext">Type TyName uni ()
+</span><a href="#local-6989586621681165550"><span class="hs-identifier hs-var">a</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">forall ann tyname (uni :: * -&gt; *).
 ann
 -&gt; Type tyname uni ann
 -&gt; [Type tyname uni ann]
 -&gt; Type tyname uni ann
 </span><a href="PlutusCore.MkPlc.html#mkIterTyApp"><span class="hs-identifier hs-var">mkIterTyApp</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">forall (uni :: * -&gt; *). Contains uni (,) =&gt; Type TyName uni ()
 </span><a href="PlutusCore.StdLib.Data.Pair.html#pair"><span class="hs-identifier hs-var">pair</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">Type TyName uni ()
-</span><a href="#local-6989586621681162678"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Type TyName uni ()
-</span><a href="#local-6989586621681162678"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">]</span><span>
-</span><span id="line-69"></span><span>        </span><span id="local-6989586621681162673"><span class="annot"><span class="annottext">unwrap' :: ()
+</span><a href="#local-6989586621681165550"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Type TyName uni ()
+</span><a href="#local-6989586621681165550"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">]</span><span>
+</span><span id="line-69"></span><span>        </span><span id="local-6989586621681165545"><span class="annot"><span class="annottext">unwrap' :: ()
 -&gt; Term TyName Name DefaultUni (Either DefaultFun b) ()
 -&gt; Term TyName Name DefaultUni (Either DefaultFun b) ()
-</span><a href="#local-6989586621681162673"><span class="hs-identifier hs-var hs-var">unwrap'</span></a></span></span><span> </span><span id="local-6989586621681162672"><span class="annot"><span class="annottext">()
-</span><a href="#local-6989586621681162672"><span class="hs-identifier hs-var">ann</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
+</span><a href="#local-6989586621681165545"><span class="hs-identifier hs-var hs-var">unwrap'</span></a></span></span><span> </span><span id="local-6989586621681165544"><span class="annot"><span class="annottext">()
+</span><a href="#local-6989586621681165544"><span class="hs-identifier hs-var">ann</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
 ann -&gt; term ann -&gt; term ann -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#apply"><span class="hs-identifier hs-var">apply</span></a></span><span> </span><span class="annot"><span class="annottext">()
-</span><a href="#local-6989586621681162672"><span class="hs-identifier hs-var">ann</span></a></span><span> </span><span class="annot"><span class="annottext">forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><a href="#local-6989586621681165544"><span class="hs-identifier hs-var">ann</span></a></span><span> </span><span class="annot"><span class="annottext">forall a b. (a -&gt; b) -&gt; a -&gt; b
 </span><a href="../../../../ghc/html/libraries/base-4.16.4.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">forall fun fun' tyname name (uni :: * -&gt; *) ann.
 (fun -&gt; fun')
 -&gt; Term tyname name uni fun ann -&gt; Term tyname name uni fun' ann
@@ -147,7 +147,7 @@ term ()
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; Type tyname uni ann -&gt; term ann -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#lamAbs"><span class="hs-identifier hs-var">lamAbs</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162700"><span class="hs-identifier hs-var">fConstr</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">forall tyname (uni :: * -&gt; *) ann.
+</span><a href="#local-6989586621681165572"><span class="hs-identifier hs-var">fConstr</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">forall tyname (uni :: * -&gt; *) ann.
 ann
 -&gt; Type tyname uni ann
 -&gt; Type tyname uni ann
@@ -162,14 +162,14 @@ ann
 -&gt; Type tyname uni ann
 -&gt; Type tyname uni ann
 </span><a href="PlutusCore.Core.Type.html#TyFun"><span class="hs-identifier hs-var">TyFun</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Type TyName DefaultUni ()
-</span><a href="#local-6989586621681162684"><span class="hs-identifier hs-var">listR</span></a></span><span> </span><span class="annot"><span class="annottext">Type TyName DefaultUni ()
-</span><a href="#local-6989586621681162702"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
+</span><a href="#local-6989586621681165556"><span class="hs-identifier hs-var">listR</span></a></span><span> </span><span class="annot"><span class="annottext">Type TyName DefaultUni ()
+</span><a href="#local-6989586621681165574"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
 </span><span id="line-72"></span><span>        </span><span class="annot"><span class="annottext">forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
 </span><a href="../../../../ghc/html/libraries/base-4.16.4.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; Type tyname uni ann -&gt; term ann -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#lamAbs"><span class="hs-identifier hs-var">lamAbs</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162698"><span class="hs-identifier hs-var">fMap</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">forall tyname (uni :: * -&gt; *) ann.
+</span><a href="#local-6989586621681165570"><span class="hs-identifier hs-var">fMap</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">forall tyname (uni :: * -&gt; *) ann.
 ann
 -&gt; Type tyname uni ann
 -&gt; Type tyname uni ann
@@ -184,28 +184,28 @@ ann
 </span><a href="../../../../ghc/html/libraries/base-4.16.4.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">forall {uni :: * -&gt; *}.
 Contains uni (,) =&gt;
 Type TyName uni () -&gt; Type TyName uni ()
-</span><a href="#local-6989586621681162679"><span class="hs-identifier hs-var">opair</span></a></span><span> </span><span class="annot"><span class="annottext">Type TyName DefaultUni ()
-</span><a href="#local-6989586621681162702"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Type TyName DefaultUni ()
-</span><a href="#local-6989586621681162702"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
+</span><a href="#local-6989586621681165551"><span class="hs-identifier hs-var">opair</span></a></span><span> </span><span class="annot"><span class="annottext">Type TyName DefaultUni ()
+</span><a href="#local-6989586621681165574"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Type TyName DefaultUni ()
+</span><a href="#local-6989586621681165574"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
 </span><span id="line-73"></span><span>        </span><span class="annot"><span class="annottext">forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
 </span><a href="../../../../ghc/html/libraries/base-4.16.4.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; Type tyname uni ann -&gt; term ann -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#lamAbs"><span class="hs-identifier hs-var">lamAbs</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162697"><span class="hs-identifier hs-var">fList</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">forall tyname (uni :: * -&gt; *) ann.
+</span><a href="#local-6989586621681165569"><span class="hs-identifier hs-var">fList</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">forall tyname (uni :: * -&gt; *) ann.
 ann
 -&gt; Type tyname uni ann
 -&gt; Type tyname uni ann
 -&gt; Type tyname uni ann
 </span><a href="PlutusCore.Core.Type.html#TyFun"><span class="hs-identifier hs-var">TyFun</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Type TyName DefaultUni ()
-</span><a href="#local-6989586621681162684"><span class="hs-identifier hs-var">listR</span></a></span><span> </span><span class="annot"><span class="annottext">Type TyName DefaultUni ()
-</span><a href="#local-6989586621681162702"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
+</span><a href="#local-6989586621681165556"><span class="hs-identifier hs-var">listR</span></a></span><span> </span><span class="annot"><span class="annottext">Type TyName DefaultUni ()
+</span><a href="#local-6989586621681165574"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
 </span><span id="line-74"></span><span>        </span><span class="annot"><span class="annottext">forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
 </span><a href="../../../../ghc/html/libraries/base-4.16.4.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; Type tyname uni ann -&gt; term ann -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#lamAbs"><span class="hs-identifier hs-var">lamAbs</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162696"><span class="hs-identifier hs-var">fI</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">forall tyname (uni :: * -&gt; *) ann.
+</span><a href="#local-6989586621681165568"><span class="hs-identifier hs-var">fI</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">forall tyname (uni :: * -&gt; *) ann.
 ann
 -&gt; Type tyname uni ann
 -&gt; Type tyname uni ann
@@ -214,13 +214,13 @@ ann
 Includes uni Integer =&gt;
 Type tyname uni ()
 </span><a href="PlutusCore.StdLib.Data.Integer.html#integer"><span class="hs-identifier hs-var">integer</span></a></span><span> </span><span class="annot"><span class="annottext">Type TyName DefaultUni ()
-</span><a href="#local-6989586621681162702"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
+</span><a href="#local-6989586621681165574"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
 </span><span id="line-75"></span><span>        </span><span class="annot"><span class="annottext">forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
 </span><a href="../../../../ghc/html/libraries/base-4.16.4.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; Type tyname uni ann -&gt; term ann -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#lamAbs"><span class="hs-identifier hs-var">lamAbs</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162695"><span class="hs-identifier hs-var">fB</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">forall tyname (uni :: * -&gt; *) ann.
+</span><a href="#local-6989586621681165567"><span class="hs-identifier hs-var">fB</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">forall tyname (uni :: * -&gt; *) ann.
 ann
 -&gt; Type tyname uni ann
 -&gt; Type tyname uni ann
@@ -229,7 +229,7 @@ ann
 Contains uni a =&gt;
 ann -&gt; Type tyname uni ann
 </span><a href="PlutusCore.MkPlc.html#mkTyBuiltin"><span class="hs-identifier hs-var">mkTyBuiltin</span></a></span><span> </span><span class="hs-glyph">@</span><span class="annot"><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">@</span><span class="annot"><a href="../../../../bytestring/html/src"><span class="hs-identifier hs-type">ByteString</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Type TyName DefaultUni ()
-</span><a href="#local-6989586621681162702"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
+</span><a href="#local-6989586621681165574"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
 </span><span id="line-76"></span><span>        </span><span class="annot"><span class="annottext">forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
 </span><a href="../../../../ghc/html/libraries/base-4.16.4.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
@@ -242,26 +242,26 @@ TermLike term TyName Name uni fun =&gt;
 term ()
 </span><a href="PlutusCore.StdLib.Data.Function.html#fix"><span class="hs-identifier hs-var">fix</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><span class="annottext">forall (uni :: * -&gt; *). Contains uni Data =&gt; Type TyName uni ()
 </span><a href="PlutusCore.StdLib.Data.Data.html#dataTy"><span class="hs-identifier hs-var">dataTy</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Type TyName DefaultUni ()
-</span><a href="#local-6989586621681162702"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><a href="#local-6989586621681165574"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">]</span><span class="hs-special">)</span><span>
 </span><span id="line-77"></span><span>        </span><span class="annot"><span class="annottext">forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
 </span><a href="../../../../ghc/html/libraries/base-4.16.4.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; Type tyname uni ann -&gt; term ann -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#lamAbs"><span class="hs-identifier hs-var">lamAbs</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162694"><span class="hs-identifier hs-var">rec</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">forall tyname (uni :: * -&gt; *) ann.
+</span><a href="#local-6989586621681165566"><span class="hs-identifier hs-var">rec</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">forall tyname (uni :: * -&gt; *) ann.
 ann
 -&gt; Type tyname uni ann
 -&gt; Type tyname uni ann
 -&gt; Type tyname uni ann
 </span><a href="PlutusCore.Core.Type.html#TyFun"><span class="hs-identifier hs-var">TyFun</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">forall (uni :: * -&gt; *). Contains uni Data =&gt; Type TyName uni ()
 </span><a href="PlutusCore.StdLib.Data.Data.html#dataTy"><span class="hs-identifier hs-var">dataTy</span></a></span><span> </span><span class="annot"><span class="annottext">Type TyName DefaultUni ()
-</span><a href="#local-6989586621681162702"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
+</span><a href="#local-6989586621681165574"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
 </span><span id="line-78"></span><span>        </span><span class="annot"><span class="annottext">forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
 </span><a href="../../../../ghc/html/libraries/base-4.16.4.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; Type tyname uni ann -&gt; term ann -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#lamAbs"><span class="hs-identifier hs-var">lamAbs</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162693"><span class="hs-identifier hs-var">d</span></a></span><span> </span><span class="annot"><span class="annottext">forall (uni :: * -&gt; *). Contains uni Data =&gt; Type TyName uni ()
+</span><a href="#local-6989586621681165565"><span class="hs-identifier hs-var">d</span></a></span><span> </span><span class="annot"><span class="annottext">forall (uni :: * -&gt; *). Contains uni Data =&gt; Type TyName uni ()
 </span><a href="PlutusCore.StdLib.Data.Data.html#dataTy"><span class="hs-identifier hs-var">dataTy</span></a></span><span>
 </span><span id="line-79"></span><span>        </span><span class="annot"><span class="annottext">forall a b. (a -&gt; b) -&gt; a -&gt; b
 </span><a href="../../../../ghc/html/libraries/base-4.16.4.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
@@ -274,17 +274,17 @@ ann -&gt; term ann -&gt; Type tyname uni ann -&gt; term ann
 ()
 -&gt; Term TyName Name DefaultUni (Either DefaultFun b) ()
 -&gt; Term TyName Name DefaultUni (Either DefaultFun b) ()
-</span><a href="#local-6989586621681162673"><span class="hs-identifier hs-var">unwrap'</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
+</span><a href="#local-6989586621681165545"><span class="hs-identifier hs-var">unwrap'</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#var"><span class="hs-identifier hs-var">var</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162693"><span class="hs-identifier hs-var">d</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Type TyName DefaultUni ()
-</span><a href="#local-6989586621681162702"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
+</span><a href="#local-6989586621681165565"><span class="hs-identifier hs-var">d</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Type TyName DefaultUni ()
+</span><a href="#local-6989586621681165574"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
 </span><span id="line-80"></span><span>            </span><span class="hs-special">[</span><span>   </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; Type tyname uni ann -&gt; term ann -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#lamAbs"><span class="hs-identifier hs-var">lamAbs</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162692"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">forall (uni :: * -&gt; *) tyname.
+</span><a href="#local-6989586621681165564"><span class="hs-identifier hs-var">i</span></a></span><span> </span><span class="annot"><span class="annottext">forall (uni :: * -&gt; *) tyname.
 Includes uni Integer =&gt;
 Type tyname uni ()
 </span><a href="PlutusCore.StdLib.Data.Integer.html#integer"><span class="hs-identifier hs-var">integer</span></a></span><span>
@@ -293,8 +293,8 @@ Type tyname uni ()
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; Type tyname uni ann -&gt; term ann -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#lamAbs"><span class="hs-identifier hs-var">lamAbs</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162691"><span class="hs-identifier hs-var">ds</span></a></span><span> </span><span class="annot"><span class="annottext">forall {tyname}. Type tyname DefaultUni ()
-</span><a href="#local-6989586621681162687"><span class="hs-identifier hs-var">listData</span></a></span><span>
+</span><a href="#local-6989586621681165563"><span class="hs-identifier hs-var">ds</span></a></span><span> </span><span class="annot"><span class="annottext">forall {tyname}. Type tyname DefaultUni ()
+</span><a href="#local-6989586621681165559"><span class="hs-identifier hs-var">listData</span></a></span><span>
 </span><span id="line-82"></span><span>              </span><span class="annot"><span class="annottext">forall a b. (a -&gt; b) -&gt; a -&gt; b
 </span><a href="../../../../ghc/html/libraries/base-4.16.4.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
@@ -303,12 +303,12 @@ ann -&gt; term ann -&gt; [term ann] -&gt; term ann
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#var"><span class="hs-identifier hs-var">var</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162700"><span class="hs-identifier hs-var">fConstr</span></a></span><span class="hs-special">)</span><span>
+</span><a href="#local-6989586621681165572"><span class="hs-identifier hs-var">fConstr</span></a></span><span class="hs-special">)</span><span>
 </span><span id="line-83"></span><span>                  </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#var"><span class="hs-identifier hs-var">var</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162692"><span class="hs-identifier hs-var">i</span></a></span><span>
+</span><a href="#local-6989586621681165564"><span class="hs-identifier hs-var">i</span></a></span><span>
 </span><span id="line-84"></span><span>                  </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
 ann -&gt; term ann -&gt; [term ann] -&gt; term ann
@@ -321,17 +321,17 @@ ann -&gt; term ann -&gt; Type tyname uni ann -&gt; term ann
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#var"><span class="hs-identifier hs-var">var</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162694"><span class="hs-identifier hs-var">rec</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
+</span><a href="#local-6989586621681165566"><span class="hs-identifier hs-var">rec</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#var"><span class="hs-identifier hs-var">var</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162691"><span class="hs-identifier hs-var">ds</span></a></span><span class="hs-special">]</span><span>
+</span><a href="#local-6989586621681165563"><span class="hs-identifier hs-var">ds</span></a></span><span class="hs-special">]</span><span>
 </span><span id="line-85"></span><span>                  </span><span class="hs-special">]</span><span>
 </span><span id="line-86"></span><span>            </span><span class="hs-special">,</span><span>   </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; Type tyname uni ann -&gt; term ann -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#lamAbs"><span class="hs-identifier hs-var">lamAbs</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162690"><span class="hs-identifier hs-var">es</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">forall tyname (uni :: * -&gt; *) ann.
+</span><a href="#local-6989586621681165562"><span class="hs-identifier hs-var">es</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">forall tyname (uni :: * -&gt; *) ann.
 ann
 -&gt; Type tyname uni ann
 -&gt; Type tyname uni ann
@@ -341,7 +341,7 @@ ann
 </span><a href="../../../../ghc/html/libraries/base-4.16.4.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">forall {uni :: * -&gt; *}.
 Contains uni (,) =&gt;
 Type TyName uni () -&gt; Type TyName uni ()
-</span><a href="#local-6989586621681162679"><span class="hs-identifier hs-var">opair</span></a></span><span> </span><span class="annot"><span class="annottext">forall (uni :: * -&gt; *). Contains uni Data =&gt; Type TyName uni ()
+</span><a href="#local-6989586621681165551"><span class="hs-identifier hs-var">opair</span></a></span><span> </span><span class="annot"><span class="annottext">forall (uni :: * -&gt; *). Contains uni Data =&gt; Type TyName uni ()
 </span><a href="PlutusCore.StdLib.Data.Data.html#dataTy"><span class="hs-identifier hs-var">dataTy</span></a></span><span class="hs-special">)</span><span>
 </span><span id="line-87"></span><span>              </span><span class="annot"><span class="annottext">forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
 </span><a href="../../../../ghc/html/libraries/base-4.16.4.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
@@ -351,7 +351,7 @@ ann -&gt; term ann -&gt; term ann -&gt; term ann
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#var"><span class="hs-identifier hs-var">var</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162698"><span class="hs-identifier hs-var">fMap</span></a></span><span class="hs-special">)</span><span>
+</span><a href="#local-6989586621681165570"><span class="hs-identifier hs-var">fMap</span></a></span><span class="hs-special">)</span><span>
 </span><span id="line-88"></span><span>              </span><span class="annot"><span class="annottext">forall a b. (a -&gt; b) -&gt; a -&gt; b
 </span><a href="../../../../ghc/html/libraries/base-4.16.4.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
@@ -364,7 +364,7 @@ ann -&gt; term ann -&gt; Type tyname uni ann -&gt; term ann
 </span><a href="../../../../ghc/html/libraries/base-4.16.4.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">forall {uni :: * -&gt; *}.
 Contains uni (,) =&gt;
 Type TyName uni () -&gt; Type TyName uni ()
-</span><a href="#local-6989586621681162679"><span class="hs-identifier hs-var">opair</span></a></span><span> </span><span class="annot"><span class="annottext">forall (uni :: * -&gt; *). Contains uni Data =&gt; Type TyName uni ()
+</span><a href="#local-6989586621681165551"><span class="hs-identifier hs-var">opair</span></a></span><span> </span><span class="annot"><span class="annottext">forall (uni :: * -&gt; *). Contains uni Data =&gt; Type TyName uni ()
 </span><a href="PlutusCore.StdLib.Data.Data.html#dataTy"><span class="hs-identifier hs-var">dataTy</span></a></span><span class="hs-special">)</span><span>
 </span><span id="line-89"></span><span>                  </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
@@ -382,19 +382,19 @@ term ()
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#var"><span class="hs-identifier hs-var">var</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162694"><span class="hs-identifier hs-var">rec</span></a></span><span>
+</span><a href="#local-6989586621681165566"><span class="hs-identifier hs-var">rec</span></a></span><span>
 </span><span id="line-90"></span><span>                  </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#var"><span class="hs-identifier hs-var">var</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162690"><span class="hs-identifier hs-var">es</span></a></span><span>
+</span><a href="#local-6989586621681165562"><span class="hs-identifier hs-var">es</span></a></span><span>
 </span><span id="line-91"></span><span>                  </span><span class="hs-special">]</span><span>
 </span><span id="line-92"></span><span>            </span><span class="hs-special">,</span><span>   </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; Type tyname uni ann -&gt; term ann -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#lamAbs"><span class="hs-identifier hs-var">lamAbs</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162691"><span class="hs-identifier hs-var">ds</span></a></span><span> </span><span class="annot"><span class="annottext">forall {tyname}. Type tyname DefaultUni ()
-</span><a href="#local-6989586621681162687"><span class="hs-identifier hs-var">listData</span></a></span><span>
+</span><a href="#local-6989586621681165563"><span class="hs-identifier hs-var">ds</span></a></span><span> </span><span class="annot"><span class="annottext">forall {tyname}. Type tyname DefaultUni ()
+</span><a href="#local-6989586621681165559"><span class="hs-identifier hs-var">listData</span></a></span><span>
 </span><span id="line-93"></span><span>              </span><span class="annot"><span class="annottext">forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
 </span><a href="../../../../ghc/html/libraries/base-4.16.4.0/src"><span class="hs-operator hs-var">.</span></a></span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
@@ -403,7 +403,7 @@ ann -&gt; term ann -&gt; term ann -&gt; term ann
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#var"><span class="hs-identifier hs-var">var</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162697"><span class="hs-identifier hs-var">fList</span></a></span><span class="hs-special">)</span><span>
+</span><a href="#local-6989586621681165569"><span class="hs-identifier hs-var">fList</span></a></span><span class="hs-special">)</span><span>
 </span><span id="line-94"></span><span>              </span><span class="annot"><span class="annottext">forall a b. (a -&gt; b) -&gt; a -&gt; b
 </span><a href="../../../../ghc/html/libraries/base-4.16.4.0/src"><span class="hs-operator hs-var">$</span></a></span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
@@ -418,22 +418,22 @@ ann -&gt; term ann -&gt; Type tyname uni ann -&gt; term ann
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#var"><span class="hs-identifier hs-var">var</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162694"><span class="hs-identifier hs-var">rec</span></a></span><span>
+</span><a href="#local-6989586621681165566"><span class="hs-identifier hs-var">rec</span></a></span><span>
 </span><span id="line-96"></span><span>                  </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#var"><span class="hs-identifier hs-var">var</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162691"><span class="hs-identifier hs-var">ds</span></a></span><span>
+</span><a href="#local-6989586621681165563"><span class="hs-identifier hs-var">ds</span></a></span><span>
 </span><span id="line-97"></span><span>                  </span><span class="hs-special">]</span><span>
 </span><span id="line-98"></span><span>            </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#var"><span class="hs-identifier hs-var">var</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162696"><span class="hs-identifier hs-var">fI</span></a></span><span>
+</span><a href="#local-6989586621681165568"><span class="hs-identifier hs-var">fI</span></a></span><span>
 </span><span id="line-99"></span><span>            </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">forall (term :: * -&gt; *) tyname name (uni :: * -&gt; *) fun ann.
 TermLike term tyname name uni fun =&gt;
 ann -&gt; name -&gt; term ann
 </span><a href="PlutusCore.MkPlc.html#var"><span class="hs-identifier hs-var">var</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Name
-</span><a href="#local-6989586621681162695"><span class="hs-identifier hs-var">fB</span></a></span><span>
+</span><a href="#local-6989586621681165567"><span class="hs-identifier hs-var">fB</span></a></span><span>
 </span><span id="line-100"></span><span>            </span><span class="hs-special">]</span><span>
 </span><span id="line-101"></span></pre></body></html>
