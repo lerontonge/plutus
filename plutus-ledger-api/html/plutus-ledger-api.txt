@@ -207,7 +207,7 @@ CodecError :: !ScriptDecodeError -> EvaluationError
 -- | An error indicating a version tag that we don't support TODO: make
 --   this error more informative when we have more information about what
 --   went wrong
-IncompatibleVersionError :: !Version () -> EvaluationError
+IncompatibleVersionError :: !Version -> EvaluationError
 
 -- | An error indicating that the cost model parameters didn't match what
 --   we expected
@@ -359,6 +359,17 @@ EvaluationContext :: DefaultMachineParameters -> EvaluationContext
 --   parameters.
 mkDynEvaluationContext :: MonadError CostModelApplyError m => BuiltinVersion DefaultFun -> CostModelParams -> m EvaluationContext
 toMachineParameters :: ProtocolVersion -> EvaluationContext -> DefaultMachineParameters
+
+-- | Shared helper for the evaluation functions:
+--   <a>evaluateScriptCounting</a> and <a>evaluateScriptRestricting</a>,
+--   
+--   Given a <a>SerialisedScript</a>:
+--   
+--   1) deserialises to a plutus <a>Term</a> and checks its ast version 2)
+--   applies the term to a list of <a>Data</a> arguments (e.g. Datum,
+--   Redeemer, <tt>ScriptContext</tt>) 3) checks that the applied-term is
+--   well-scoped 4) returns the applied-term
+mkTermToEvaluate :: MonadError EvaluationError m => LedgerPlutusVersion -> ProtocolVersion -> SerialisedScript -> [Data] -> m (Term NamedDeBruijn DefaultUni DefaultFun ())
 
 
 -- | A type for intervals and associated functions.
@@ -3184,7 +3195,7 @@ CodecError :: !ScriptDecodeError -> EvaluationError
 -- | An error indicating a version tag that we don't support TODO: make
 --   this error more informative when we have more information about what
 --   went wrong
-IncompatibleVersionError :: !Version () -> EvaluationError
+IncompatibleVersionError :: !Version -> EvaluationError
 
 -- | An error indicating that the cost model parameters didn't match what
 --   we expected
@@ -3967,7 +3978,7 @@ CodecError :: !ScriptDecodeError -> EvaluationError
 -- | An error indicating a version tag that we don't support TODO: make
 --   this error more informative when we have more information about what
 --   went wrong
-IncompatibleVersionError :: !Version () -> EvaluationError
+IncompatibleVersionError :: !Version -> EvaluationError
 
 -- | An error indicating that the cost model parameters didn't match what
 --   we expected
@@ -4750,7 +4761,7 @@ CodecError :: !ScriptDecodeError -> EvaluationError
 -- | An error indicating a version tag that we don't support TODO: make
 --   this error more informative when we have more information about what
 --   went wrong
-IncompatibleVersionError :: !Version () -> EvaluationError
+IncompatibleVersionError :: !Version -> EvaluationError
 
 -- | An error indicating that the cost model parameters didn't match what
 --   we expected

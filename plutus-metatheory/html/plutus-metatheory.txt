@@ -15572,15 +15572,15 @@ type T_Format_24 = Format
 d_Format_24 :: a
 type T_Input_26 = Input
 d_Input_26 :: a
-type T_TermN_28 = Term TyName Name DefaultUni DefaultFun SourcePos
+type T_TermN_28 = Term TyName Name DefaultUni DefaultFun SrcSpan
 d_TermN_28 :: a
 type T_Term_30 = Term NamedTyDeBruijn NamedDeBruijn DefaultUni DefaultFun ()
 d_Term_30 :: a
-type T_TypeN_32 = Type TyName DefaultUni SourcePos
+type T_TypeN_32 = Type TyName DefaultUni SrcSpan
 d_TypeN_32 :: a
 type T_Type_34 = Type NamedTyDeBruijn DefaultUni ()
 d_Type_34 :: a
-type T_ProgramN_36 = Program TyName Name DefaultUni DefaultFun SourcePos
+type T_ProgramN_36 = Program TyName Name DefaultUni DefaultFun SrcSpan
 d_ProgramN_36 :: a
 type T_Program_38 = Program NamedTyDeBruijn NamedDeBruijn DefaultUni DefaultFun ()
 d_Program_38 :: a
@@ -15598,11 +15598,11 @@ d_showTerm_58 :: T_RawTm_36 -> T_String_6
 d_deBruijnify_60 :: T_ProgramN_36 -> T_Either_44 T_FreeVariableError_470 T_Program_38
 d_deBruijnifyTm_62 :: T_TermN_28 -> T_Either_44 T_FreeVariableError_470 T_Term_30
 d_deBruijnifyTy_64 :: T_TypeN_32 -> T_Either_44 T_FreeVariableError_470 T_Type_34
-type T_ProgramNU_66 = Program Name DefaultUni DefaultFun SourcePos
+type T_ProgramNU_66 = Program Name DefaultUni DefaultFun SrcSpan
 d_ProgramNU_66 :: a
 type T_ProgramU_68 = Program NamedDeBruijn DefaultUni DefaultFun ()
 d_ProgramU_68 :: a
-type T_TermNU_70 = Term Name DefaultUni DefaultFun SourcePos
+type T_TermNU_70 = Term Name DefaultUni DefaultFun SrcSpan
 d_TermNU_70 :: a
 type T_TermU_72 = Term NamedDeBruijn DefaultUni DefaultFun ()
 d_TermU_72 :: a
