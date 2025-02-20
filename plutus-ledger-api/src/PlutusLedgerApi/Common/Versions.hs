@@ -1,5 +1,7 @@
 -- editorconfig-checker-disable-file
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE LambdaCase     #-}
+
 {- | This module contains the code for handling the various kinds of version that we care about:
 
 * Protocol versions
@@ -26,8 +28,10 @@ import PlutusCore
 import PlutusLedgerApi.Common.ProtocolVersions
 import PlutusPrelude
 
+import Codec.Serialise.Class (Serialise)
 import Data.Map qualified as Map
 import Data.Set qualified as Set
+import NoThunks.Class (NoThunks)
 import PlutusCore.Version (plcVersion100, plcVersion110)
 import Prettyprinter
 
@@ -55,6 +59,8 @@ later ledger-languages/protocol-versions.
 
 Note that this doesn't currently handle removals, although it fairly straighforwardly
 could do, just by tracking when they were removed.
+
+See also Note [Adding new builtins: protocol versions].
 -}
 
 {-| The Plutus ledger language. These are entirely different script languages from the ledger's perspective,
@@ -70,17 +76,17 @@ data PlutusLedgerLanguage =
     | PlutusV2 -- ^ introduced in vasil era
     | PlutusV3 -- ^ not yet enabled
    deriving stock (Eq, Ord, Show, Generic, Enum, Bounded)
+   deriving anyclass (NFData, NoThunks, Serialise)
 
 instance Pretty PlutusLedgerLanguage where
     pretty = viaShow
 
-{-| A map indicating which builtin functions were introduced in which 'ProtocolVersion'.
-Each builtin function should appear at most once.
+{-| A map indicating which builtin functions were introduced in which 'MajorProtocolVersion'.
 
 This __must__ be updated when new builtins are added.
 See Note [New builtins/language versions and protocol versions]
 -}
-builtinsIntroducedIn :: Map.Map (PlutusLedgerLanguage, ProtocolVersion) (Set.Set DefaultFun)
+builtinsIntroducedIn :: Map.Map (PlutusLedgerLanguage, MajorProtocolVersion) (Set.Set DefaultFun)
 builtinsIntroducedIn = Map.fromList [
   ((PlutusV1, alonzoPV), Set.fromList [
           AddInteger, SubtractInteger, MultiplyInteger, DivideInteger, QuotientInteger, RemainderInteger, ModInteger, EqualsInteger, LessThanInteger, LessThanEqualsInteger,
@@ -95,13 +101,22 @@ builtinsIntroducedIn = Map.fromList [
           ChooseData, ConstrData, MapData, ListData, IData, BData, UnConstrData, UnMapData, UnListData, UnIData, UnBData, EqualsData,
           MkPairData, MkNilData, MkNilPairData
           ]),
+  ((PlutusV1, futurePV), Set.fromList [
+          ListToArray, IndexArray, LengthOfArray
+          ]),
   ((PlutusV2, vasilPV), Set.fromList [
           SerialiseData
           ]),
   ((PlutusV2, valentinePV), Set.fromList [
           VerifyEcdsaSecp256k1Signature, VerifySchnorrSecp256k1Signature
           ]),
-  ((PlutusV3, futurePV), Set.fromList [
+  ((PlutusV2, plominPV), Set.fromList [
+          IntegerToByteString, ByteStringToInteger
+          ]),
+  ((PlutusV2, futurePV), Set.fromList [
+          ListToArray, IndexArray, LengthOfArray
+          ]),
+  ((PlutusV3, changPV), Set.fromList [
           Bls12_381_G1_add, Bls12_381_G1_neg, Bls12_381_G1_scalarMul,
           Bls12_381_G1_equal, Bls12_381_G1_hashToGroup,
           Bls12_381_G1_compress, Bls12_381_G1_uncompress,
@@ -109,68 +124,79 @@ builtinsIntroducedIn = Map.fromList [
           Bls12_381_G2_equal, Bls12_381_G2_hashToGroup,
           Bls12_381_G2_compress, Bls12_381_G2_uncompress,
           Bls12_381_millerLoop, Bls12_381_mulMlResult, Bls12_381_finalVerify,
-          Keccak_256, Blake2b_224
+          Keccak_256, Blake2b_224, IntegerToByteString, ByteStringToInteger
+          ]),
+  ((PlutusV3, plominPV), Set.fromList [
+          AndByteString, OrByteString, XorByteString, ComplementByteString,
+          ReadBit, WriteBits, ReplicateByte,
+          ShiftByteString, RotateByteString, CountSetBits, FindFirstSetBit,
+          Ripemd_160
+          ]),
+  ((PlutusV3, futurePV), Set.fromList [
+          ExpModInteger,
+          CaseList, CaseData, DropList,
+          ListToArray, IndexArray, LengthOfArray
           ])
   ]
 
 {-| A map indicating which Plutus Core versions were introduced in which
-'ProtocolVersion' and 'PlutusLedgerLanguage'. Each version should appear at most once.
+'MajorProtocolVersion' and 'PlutusLedgerLanguage'. Each version should appear at most once.
 
 This __must__ be updated when new versions are added.
 See Note [New builtins/language versions and protocol versions]
 -}
-plcVersionsIntroducedIn :: Map.Map (PlutusLedgerLanguage, ProtocolVersion) (Set.Set Version)
+plcVersionsIntroducedIn :: Map.Map (PlutusLedgerLanguage, MajorProtocolVersion) (Set.Set Version)
 plcVersionsIntroducedIn = Map.fromList [
   ((PlutusV1, alonzoPV), Set.fromList [ plcVersion100 ]),
-  ((PlutusV3, conwayPV), Set.fromList [ plcVersion110 ])
+  ((PlutusV3, changPV), Set.fromList [ plcVersion110 ])
   ]
 
 {-| Query the protocol version that a specific Plutus ledger language was first introduced in.
 -}
-ledgerLanguageIntroducedIn :: PlutusLedgerLanguage -> ProtocolVersion
+ledgerLanguageIntroducedIn :: PlutusLedgerLanguage -> MajorProtocolVersion
 ledgerLanguageIntroducedIn = \case
     PlutusV1 -> alonzoPV
     PlutusV2 -> vasilPV
-    PlutusV3 -> conwayPV
+    PlutusV3 -> changPV
 
-{-| Which Plutus language versions are available in the given 'ProtocolVersion'?
+{-| Which Plutus language versions are available in the given 'MajorProtocolVersion'?
 
 See Note [New builtins/language versions and protocol versions]
 -}
-ledgerLanguagesAvailableIn :: ProtocolVersion -> Set.Set PlutusLedgerLanguage
+ledgerLanguagesAvailableIn :: MajorProtocolVersion -> Set.Set PlutusLedgerLanguage
 ledgerLanguagesAvailableIn searchPv =
     foldMap ledgerVersionToSet enumerate
   where
     -- OPTIMIZE: could be done faster using takeWhile
     ledgerVersionToSet :: PlutusLedgerLanguage -> Set.Set PlutusLedgerLanguage
-    ledgerVersionToSet lv
-        | ledgerLanguageIntroducedIn lv <= searchPv = Set.singleton lv
+    ledgerVersionToSet ll
+        | ledgerLanguageIntroducedIn ll <= searchPv = Set.singleton ll
         | otherwise = mempty
 
 {-| Which Plutus Core language versions are available in the given 'PlutusLedgerLanguage'
-and 'ProtocolVersion'?
+and 'MajorProtocolVersion'?
 
 See Note [New builtins/language versions and protocol versions]
 -}
-plcVersionsAvailableIn :: PlutusLedgerLanguage -> ProtocolVersion -> Set.Set Version
+plcVersionsAvailableIn :: PlutusLedgerLanguage -> MajorProtocolVersion -> Set.Set Version
 plcVersionsAvailableIn thisLv thisPv = fold $ Map.elems $
     Map.takeWhileAntitone plcVersionAvailableIn plcVersionsIntroducedIn
     where
-      plcVersionAvailableIn :: (PlutusLedgerLanguage, ProtocolVersion) -> Bool
+      plcVersionAvailableIn :: (PlutusLedgerLanguage, MajorProtocolVersion) -> Bool
       plcVersionAvailableIn (introducedInLv,introducedInPv) =
           -- both should be satisfied
           introducedInLv <= thisLv && introducedInPv <= thisPv
 
 {-| Which builtin functions are available in the given given 'PlutusLedgerLanguage'
-and 'ProtocolVersion'?
+and 'MajorProtocolVersion'?
 
 See Note [New builtins/language versions and protocol versions]
 -}
-builtinsAvailableIn :: PlutusLedgerLanguage -> ProtocolVersion -> Set.Set DefaultFun
-builtinsAvailableIn thisLv thisPv = fold $ Map.elems $
-    Map.takeWhileAntitone builtinAvailableIn builtinsIntroducedIn
+builtinsAvailableIn :: PlutusLedgerLanguage -> MajorProtocolVersion -> Set.Set DefaultFun
+builtinsAvailableIn thisLv thisPv = fold $
+    Map.filterWithKey (const . alreadyIntroduced) builtinsIntroducedIn
     where
-      builtinAvailableIn :: (PlutusLedgerLanguage, ProtocolVersion) -> Bool
-      builtinAvailableIn (introducedInLv,introducedInPv) =
+      alreadyIntroduced :: (PlutusLedgerLanguage, MajorProtocolVersion) -> Bool
+      alreadyIntroduced (introducedInLv,introducedInPv) =
           -- both should be satisfied
           introducedInLv <= thisLv && introducedInPv <= thisPv

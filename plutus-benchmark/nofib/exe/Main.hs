@@ -14,11 +14,12 @@ import Data.ByteString qualified as BS
 import Data.Char (isSpace)
 import Data.Foldable (traverse_)
 import Data.SatInt
+import Data.String (fromString)
 import Flat qualified
 import Options.Applicative as Opt hiding (action)
+import Prettyprinter (Doc, indent, line, vsep)
 import System.Exit (exitFailure)
 import System.IO
-import Text.PrettyPrint.ANSI.Leijen (Doc, indent, line, string, text, vsep)
 import Text.Printf (printf)
 
 import PlutusBenchmark.Common (toAnonDeBruijnTerm)
@@ -34,7 +35,7 @@ import PlutusCore.Default (DefaultFun, DefaultUni)
 import PlutusCore.Evaluation.Machine.ExBudget (ExBudget (..))
 import PlutusCore.Evaluation.Machine.ExBudgetingDefaults qualified as PLC
 import PlutusCore.Evaluation.Machine.ExMemory (ExCPU (..), ExMemory (..))
-import PlutusCore.Pretty (prettyPlcClassicDebug)
+import PlutusCore.Pretty (prettyPlcClassicSimple)
 import PlutusTx (getPlcNoAnn)
 import PlutusTx.Code (CompiledCode, sizePlc)
 import PlutusTx.Prelude hiding (fmap, mappend, traverse_, (<$), (<$>), (<*>), (<>))
@@ -180,7 +181,7 @@ options = hsubparser
   <> command "run-hs"
      (info (RunHaskell <$> progAndArgs)
       (progDesc "run the program directly as Hs"))
-  <> command "dump-plc"
+  <> command "dump-uplc"
      (info (DumpPLC <$> progAndArgs)
       (progDesc "print the program (applied to arguments) as Plutus Core source on standard output"))
   <> command "dump-flat-named"
@@ -200,8 +201,13 @@ options = hsubparser
 
 ---------------- Evaluation ----------------
 
-evaluateWithCek :: UPLC.Term UPLC.NamedDeBruijn DefaultUni DefaultFun () -> UPLC.EvaluationResult (UPLC.Term UPLC.NamedDeBruijn DefaultUni DefaultFun ())
-evaluateWithCek = UPLC.unsafeExtractEvaluationResult . (\(fstT,_,_) -> fstT) . UPLC.runCekDeBruijn PLC.defaultCekParameters UPLC.restrictingEnormous UPLC.noEmitter
+evaluateWithCek
+  :: UPLC.Term UPLC.NamedDeBruijn DefaultUni DefaultFun ()
+  -> UPLC.EvaluationResult (UPLC.Term UPLC.NamedDeBruijn DefaultUni DefaultFun ())
+evaluateWithCek =
+  UPLC.unsafeSplitStructuralOperational
+  . (\(fstT,_,_) -> fstT)
+  . UPLC.runCekDeBruijn PLC.defaultCekParametersForTesting UPLC.restrictingEnormous UPLC.noEmitter
 
 writeFlatNamed :: UPLC.Program UPLC.NamedDeBruijn DefaultUni DefaultFun () -> IO ()
 writeFlatNamed prog = BS.putStr . Flat.flat . UPLC.UnrestrictedProgram $ prog
@@ -216,24 +222,24 @@ description = "This program provides operations on a number of Plutus programs "
               ++ "or compiled into Plutus Core and run on the CEK machine.  "
               ++ "Compiled programs can also be output in a number of formats."
 
-knownProgs :: [Doc]
-knownProgs = map text ["clausify", "knights", "lastpiece", "prime", "primetest", "queens"]
+knownProgs :: [Doc ann ]
+knownProgs = map fromString ["clausify", "knights", "lastpiece", "prime", "primetest", "queens"]
 
 -- Extra information about the available programs.  We need a Doc because if you
 -- just make it a string it removes newlines and other formatting.  There's some
 -- manual formatting in here because the text doesn't wrap as expected, presumably
 -- due to what optparse-applicative is doing internally.
-footerInfo :: Doc
-footerInfo = text "Most commands take the name of a program and a (possbily empty) list of arguments."
+footerInfo :: Doc ann
+footerInfo = fromString "Most commands take the name of a program and a (possbily empty) list of arguments."
            <> line <> line
-           <> text "The available programs are: "
+           <> fromString "The available programs are: "
            <> line
            <> indent 2 (vsep knownProgs)
            <> line <> line
-           <> string ("See 'nofib-exe run <programe-name> --help' for information about the arguments\n"
+           <> fromString ("See 'nofib-exe run <programe-name> --help' for information about the arguments\n"
                    ++ "for a particular program.")
            <> line <> line
-           <> string ("The 'dump' commands construct a Plutus Core term applying the program to its\n"
+           <> fromString ("The 'dump' commands construct a Plutus Core term applying the program to its\n"
                    ++ "arguments and prints the result to the terminal in the specified format.\n"
                    ++ "You'll probably want to redirect the output to a file.")
 
@@ -248,7 +254,7 @@ measureBudget compiledCode =
    in case programE of
         Left _ -> (-1,-1) -- Something has gone wrong but I don't care.
         Right program ->
-          let (_, UPLC.TallyingSt _ budget) = UPLC.runCekNoEmit PLC.defaultCekParameters UPLC.tallying $ program ^. UPLC.progTerm
+          let (_, UPLC.TallyingSt _ budget) = UPLC.runCekNoEmit PLC.defaultCekParametersForTesting UPLC.tallying $ program ^. UPLC.progTerm
               ExCPU cpu = exBudgetCPU budget
               ExMemory mem = exBudgetMemory budget
           in (fromSatInt cpu, fromSatInt mem)
@@ -305,7 +311,7 @@ main :: IO ()
 main = do
   execParser (info (helper <*> options) (fullDesc <> progDesc description <> footerDoc (Just footerInfo))) >>= \case
     RunPLC pa ->
-        print . prettyPlcClassicDebug . evaluateWithCek . getTerm $ pa
+        print . prettyPlcClassicSimple . evaluateWithCek . getTerm $ pa
     RunHaskell pa ->
         case pa of
           Clausify formula        -> print $ Clausify.runClausify formula
@@ -316,7 +322,7 @@ main = do
           Primetest n             -> if n<0 then Hs.error "Positive number expected"
                                      else print $ Prime.runPrimalityTest n
     DumpPLC pa ->
-        traverse_ putStrLn $ unindent . prettyPlcClassicDebug . UPLC.Program () PLC.latestVersion . getTerm $ pa
+        traverse_ putStrLn $ unindent . prettyPlcClassicSimple . UPLC.Program () PLC.latestVersion . getTerm $ pa
             where unindent d = map (dropWhile isSpace) $ (Hs.lines . Hs.show $ d)
     DumpFlatNamed pa ->
         writeFlatNamed . UPLC.Program () PLC.latestVersion . getTerm $ pa

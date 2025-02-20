@@ -1,0 +1,4 @@
+let
+  !y : integer = addInteger 1 2
+in
+\(x : integer) -> addInteger (addInteger y x) y

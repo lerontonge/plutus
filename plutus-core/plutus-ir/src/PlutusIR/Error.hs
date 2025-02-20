@@ -19,6 +19,7 @@ module PlutusIR.Error
     ) where
 
 import PlutusCore qualified as PLC
+import PlutusCore.Error qualified as PLC
 import PlutusCore.Pretty qualified as PLC
 import PlutusIR qualified as PIR
 import PlutusPrelude
@@ -32,7 +33,7 @@ data TypeErrorExt uni ann =
          !ann
          -- the expected constructor's type
          !(PLC.Type PLC.TyName uni ann)
-    deriving stock (Show, Eq, Generic)
+    deriving stock (Show, Eq, Generic, Functor)
     deriving anyclass (NFData)
 makeClassyPrisms ''TypeErrorExt
 
@@ -42,6 +43,7 @@ data Error uni fun a = CompilationError !a !T.Text -- ^ A generic compilation er
                      | PLCError !(PLC.Error uni fun a) -- ^ An error from running some PLC function, lifted into this error type for convenience.
                      | PLCTypeError !(PLC.TypeError (PIR.Term PIR.TyName PIR.Name uni fun ()) uni fun a)
                      | PIRTypeError !(TypeErrorExt uni a)
+                     deriving stock (Functor)
 makeClassyPrisms ''Error
 
 instance PLC.AsTypeError (Error uni fun a) (PIR.Term PIR.TyName PIR.Name uni fun ()) uni fun a where
@@ -52,6 +54,12 @@ instance AsTypeErrorExt (Error uni fun a) uni a where
 
 instance PLC.AsFreeVariableError (Error uni fun a) where
     _FreeVariableError = _PLCError . PLC._FreeVariableError
+
+instance PLC.AsUniqueError (Error uni fun a) a where
+    _UniqueError = _PLCError . PLC._UniqueError
+
+instance PLC.AsParserErrorBundle (Error uni fun a) where
+    _ParserErrorBundle = _PLCError . PLC._ParseErrorE
 
 -- Pretty-printing
 ------------------
@@ -71,7 +79,7 @@ deriving anyclass instance
     (PLC.ThrowableBuiltins uni fun, PP.Pretty ann, Typeable ann) => Exception (Error uni fun ann)
 
 instance (PLC.PrettyUni uni, Pretty fun, Pretty ann) => Pretty (Error uni fun ann) where
-    pretty = PLC.prettyPlcClassicDef
+    pretty = PLC.prettyPlcClassic
 
 
 instance (PLC.PrettyUni uni, Pretty fun, Pretty ann) =>

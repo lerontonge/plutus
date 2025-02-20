@@ -1,6 +1,6 @@
 -- Custom repository for cardano haskell packages, see CONTRIBUTING for more
 repository cardano-haskell-packages
-  url: https://input-output-hk.github.io/cardano-haskell-packages
+  url: https://chap.intersectmbo.org/
   secure: True
   root-keys:
     3e0cce471cf09815f930210f7827266fd09045445d65923e6d0238a6cd15126f
@@ -14,20 +14,21 @@ repository cardano-haskell-packages
 -- update either of these.
 index-state:
   -- Bump both the following dates if you need newer packages from Hackage
-  , hackage.haskell.org 2023-07-14T00:00:00Z
+  , hackage.haskell.org 2025-01-23T19:34:35Z
   -- Bump this if you need newer packages from CHaP
-  , cardano-haskell-packages 2023-07-14T00:00:00Z
+  , cardano-haskell-packages 2025-01-22T23:05:02Z
 
-packages: doc/read-the-docs-site
+packages: cardano-constitution
           plutus-benchmark
           plutus-conformance
           plutus-core
+          plutus-executables
           plutus-ledger-api
           plutus-metatheory
           plutus-tx
           plutus-tx-plugin
-          prettyprinter-configurable
-          stubs/plutus-ghc-stub
+          plutus-tx-test-util
+          doc/docusaurus/docusaurus-examples.cabal
 
 -- We never, ever, want this.
 write-ghc-environment-files: never
@@ -41,19 +42,51 @@ benchmarks: true
 test-show-details: direct
 
 package plutus-core
-  flags: +with-inline-r
+  flags: +with-inline-r +with-cert
 
--- See the note on nix/pkgs/default.nix:agdaPackages for why this is here.
+-- Needs a newer base so won't work on 8.10, various dependencies of coq don't work
+-- when cross building for windows
+if impl(ghc < 9.0) || os(windows)
+  -- Note: we enable this and then disable it conditionally, rather than enabling
+  -- it conditionally, to avoid https://github.com/haskell/cabal/issues/9293
+  package plutus-core
+    flags: -with-cert
+  -- This is a bit silly. Although we won't use plutus-cert in this case, cabal
+  -- still considers it a "local" project and tries to solve for it so we hack
+  -- around the dependency issue, keeping cabal happy, which is fine since it
+  -- won't actually build it.
+  allow-older: plutus-cert:base
+
+-- Recently introduced flag to be clever and use SIMD instructions.
+-- We don't need this and it causes problems in a few settings including
+-- cross-compilation.
+package bitvec
+  flags: -simd
+
+-- See the note on nix/agda-packages.nix for why this is here.
 -- (NOTE this will change to ieee754 in newer versions of nixpkgs).
 extra-packages: ieee, filemanip
 
-constraints: 
-  -- We need turtle > 1.6 to support GHC 9.6. But that version now allows
-  -- some broken situations: https://github.com/Gabriella439/turtle/pull/446#issuecomment-1637628373
-  -- We are forced into an old version of ansi-wl-pprint because of inline-c (dep of inline-r), which
-  -- doesn't support the new one.
-  -- So for now we just force old versions of optparse-applicative and ansi-wl-pprint.
-  -- This is fine for CHaP, since we don't publish plutus-metatheory and the flag for inline-r
-  -- is off by default.
-  optparse-applicative < 0.18
-  , ansi-wl-pprint < 1.0
+source-repository-package
+  type: git
+  location: https://github.com/jaccokrijnen/plutus-cert
+  tag: e814b9171398cbdfecdc6823067156a7e9fc76a3
+
+allow-newer:
+  -- https://github.com/tweag/HaskellR/pull/420
+  , inline-r:singletons-th
+  , inline-r:aeson
+  , inline-r:text
+  , inline-r:template-haskell
+  , inline-r:deepseq
+  , inline-r:bytestring
+  , inline-r:containers
+  , inline-r:primitive
+
+-- Uncomment the following lines to make cardano-constitution:create-json-envelope buildable:True
+--
+-- package cardano-constitution
+--   flags: +force-build
+-- allow-newer: *:plutus-ledger-api
+-- allow-older: *:nothunks
+

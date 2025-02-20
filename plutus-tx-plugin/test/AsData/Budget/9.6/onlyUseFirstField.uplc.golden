@@ -1,0 +1,20 @@
+(program
+   1.1.0
+   (\d ->
+      case
+        ((\constrArgs ->
+            (\field ->
+               (\rest ->
+                  (\field ->
+                     (\rest ->
+                        constr 0
+                          [ field
+                          , field
+                          , (unIData (force headList rest))
+                          , (unIData (force headList (force tailList rest))) ])
+                       (force tailList rest))
+                    (unIData (force headList rest)))
+                 (force tailList constrArgs))
+              (unIData (force headList constrArgs)))
+           (force (force sndPair) (unConstrData d)))
+        [(\int int int int -> int)]))

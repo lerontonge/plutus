@@ -1,0 +1,5 @@
+let
+  !f : integer -> integer -> integer -> integer -> integer
+    = \(a : integer) (b : integer) (c : integer) (d : integer) -> 5
+in
+\(d : integer) -> 5

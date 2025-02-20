@@ -16,12 +16,13 @@ import PlutusCore.Crypto.BLS12_381.Pairing as BLS12_381.Pairing
 import PlutusCore.Data
 import PlutusCore.Default
 import PlutusCore.MkPlc (mkIterTyApp)
-import PlutusCore.Name
+import PlutusCore.Name.Unique
 import PlutusCore.Parser.ParserCommon
 
 import Control.Monad
 import Data.ByteString (ByteString)
 import Data.Text (Text)
+import Data.Vector.Strict qualified as Strict
 import Text.Megaparsec hiding (ParseError, State, many, parse, some)
 
 -- | A PLC @Type@ to be parsed. ATM the parser only works
@@ -138,6 +139,7 @@ defaultUni = choice $ map try
     , someType @_ @()                         <$ symbol "unit"
     , someType @_ @Bool                       <$ symbol "bool"
     , someType @_ @[]                         <$ symbol "list"
+    , someType @_ @Strict.Vector              <$ symbol "array"
     , someType @_ @(,)                        <$ symbol "pair"
     , someType @_ @Data                       <$ symbol "data"
     , someType @_ @BLS12_381.G1.Element       <$ symbol "bls12_381_G1_element"

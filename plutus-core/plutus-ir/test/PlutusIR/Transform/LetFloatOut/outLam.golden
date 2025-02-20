@@ -1,0 +1,4 @@
+let
+  ~y : integer = 3
+in
+\(x : integer) -> addInteger x y

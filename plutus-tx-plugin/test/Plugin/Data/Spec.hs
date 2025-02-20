@@ -11,6 +11,7 @@
 {-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:defer-errors #-}
 {-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:max-simplifier-iterations-pir=0 #-}
 {-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:max-simplifier-iterations-uplc=0 #-}
+{-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:max-cse-iterations=0 #-}
 {-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:context-level=0 #-}
 {-# OPTIONS_GHC -Wno-incomplete-patterns #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
@@ -19,7 +20,6 @@ module Plugin.Data.Spec where
 
 import Test.Tasty.Extras
 
-import PlutusCore.Pretty qualified as PLC
 import PlutusCore.Test
 import PlutusTx.Builtins qualified as Builtins
 import PlutusTx.Code
@@ -30,8 +30,8 @@ import PlutusTx.Test
 import Data.Proxy
 
 datat :: TestNested
-datat = testNested "Data" [
-    monoData
+datat = testNested "Data" . pure . testNestedGhc $
+  [ monoData
   , polyData
   , newtypes
   , recursiveTypes
@@ -40,24 +40,25 @@ datat = testNested "Data" [
 
 monoData :: TestNested
 monoData = testNested "monomorphic" [
-    goldenPir "enum" basicEnum
-  , goldenPir "monoDataType" monoDataType
-  , goldenPir "monoConstructor" monoConstructor
-  , goldenPir "monoConstructed" monoConstructed
-  , goldenPir "monoCase" monoCase
-  , goldenPir "monoCaseStrict" monoCaseStrict
+    goldenPirReadable "enum" basicEnum
+  , goldenPirReadable "monoDataType" monoDataType
+  , goldenPirReadable "monoConstructor" monoConstructor
+  , goldenPirReadable "monoConstructed" monoConstructed
+  , goldenPirReadable "monoCase" monoCase
+  , goldenPirReadable "monoCaseStrict" monoCaseStrict
   , goldenUEval "monoConstDest" [ toUPlc monoCase, toUPlc monoConstructed ]
-  , goldenPir "defaultCase" defaultCase
-  , goldenPir "irrefutableMatch" irrefutableMatch
-  , goldenPir "atPattern" atPattern
+  , goldenPirReadable "defaultCase" defaultCase
+  , goldenPirReadable "irrefutableMatch" irrefutableMatch
+  , goldenPirReadable "atPattern" atPattern
   , goldenUEval "monoConstDestDefault" [ toUPlc monoCase, toUPlc monoConstructed ]
-  , goldenPir "monoRecord" monoRecord
-  , goldenPir "recordNewtype" recordNewtype
-  , goldenPir "recordWithStrictField" recordWithStrictField
-  , goldenPir "unusedWrapper" unusedWrapper
-  , goldenPir "nonValueCase" nonValueCase
-  , goldenPir "strictDataMatch" strictDataMatch
-  , goldenPir "synonym" synonym
+  , goldenPirReadable "monoRecord" monoRecord
+  , goldenPirReadable "recordNewtype" recordNewtype
+  , goldenPirReadable "recordWithStrictField" recordWithStrictField
+  , goldenPirReadable "unusedWrapper" unusedWrapper
+  , goldenPirReadable "nonValueCase" nonValueCase
+  , goldenPirReadable "stakingCredential" stakingCredential
+  , goldenPirReadable "strictDataMatch" strictDataMatch
+  , goldenPirReadable "synonym" synonym
   ]
 
 data MyEnum = Enum1 | Enum2
@@ -157,6 +158,16 @@ unusedWrapper = plc (Proxy @"unusedWrapper") ((\x (y, z) -> x (z, y)) mkT (1, 2)
 nonValueCase :: CompiledCode (MyEnum -> Integer)
 nonValueCase = plc (Proxy @"nonValueCase") (\(x :: MyEnum) -> case x of { Enum1 -> 1::Integer ; Enum2 -> Builtins.error (); })
 
+data Credential
+  = PubKeyCredential
+data StakingCredential
+  = StakingHash Credential
+  | StakingPtr
+
+-- | Check that a data type used in an unused constructor of a used data type doesn't get eliminated.
+stakingCredential :: CompiledCode StakingCredential
+stakingCredential = plc (Proxy @"StakingCredential") StakingPtr
+
 -- Bang patterns on data types do nothing: fields are already strict
 data StrictTy a = StrictTy !a !a
 
@@ -170,9 +181,9 @@ synonym = plc (Proxy @"synonym") (1::Synonym)
 
 polyData :: TestNested
 polyData = testNested "polymorphic" [
-    goldenPir "polyDataType" polyDataType
-  , goldenPir "polyConstructed" polyConstructed
-  , goldenPir "defaultCasePoly" defaultCasePoly
+    goldenPirReadable "polyDataType" polyDataType
+  , goldenPirReadable "polyConstructed" polyConstructed
+  , goldenPirReadable "defaultCasePoly" defaultCasePoly
   ]
 
 data MyPolyData a b = Poly1 a b | Poly2 a
@@ -195,14 +206,14 @@ defaultCasePoly = plc (Proxy @"defaultCasePoly") (\(x :: MyPolyData Integer Inte
 
 newtypes :: TestNested
 newtypes = testNested "newtypes" [
-    goldenPir "basicNewtype" basicNewtype
-   , goldenPir "newtypeMatch" newtypeMatch
-   , goldenPir "newtypeCreate" newtypeCreate
-   , goldenPir "newtypeId" newtypeId
-   , goldenPir "newtypeCreate2" newtypeCreate2
-   , goldenPir "nestedNewtypeMatch" nestedNewtypeMatch
+    goldenPirReadable "basicNewtype" basicNewtype
+   , goldenPirReadable "newtypeMatch" newtypeMatch
+   , goldenPirReadable "newtypeCreate" newtypeCreate
+   , goldenPirReadable "newtypeId" newtypeId
+   , goldenPirReadable "newtypeCreate2" newtypeCreate2
+   , goldenPirReadable "nestedNewtypeMatch" nestedNewtypeMatch
    , goldenUEval "newtypeCreatDest" [ toUPlc $ newtypeMatch, toUPlc $ newtypeCreate2 ]
-   , goldenPir "paramNewtype" paramNewtype
+   , goldenPirReadable "paramNewtype" paramNewtype
    ]
 
 newtype MyNewtype = MyNewtype Integer
@@ -236,24 +247,20 @@ paramNewtype = plc (Proxy @"paramNewtype") (\(x ::ParamNewtype Integer) -> case 
 
 recursiveTypes :: TestNested
 recursiveTypes = testNested "recursive" [
-    goldenPir "listConstruct" listConstruct
-    , goldenPir "listConstruct2" listConstruct2
-    , goldenPir "listConstruct3" listConstruct3
-    , goldenPir "listMatch" listMatch
+    goldenPirReadable "listConstruct" listConstruct
+    , goldenPirReadable "listConstruct2" listConstruct2
+    , goldenPirReadable "listConstruct3" listConstruct3
+    , goldenPirReadable "listMatch" listMatch
     , goldenUEval "listConstDest" [ toUPlc listMatch, toUPlc listConstruct ]
     , goldenUEval "listConstDest2" [ toUPlc listMatch, toUPlc listConstruct2 ]
-    , goldenPir "ptreeConstruct" ptreeConstruct
-    , goldenPir "ptreeMatch" ptreeMatch
+    , goldenPirReadable "ptreeConstruct" ptreeConstruct
+    , goldenPirReadable "ptreeMatch" ptreeMatch
     , goldenUEval "ptreeConstDest" [ toUPlc ptreeMatch, toUPlc ptreeConstruct ]
     , goldenUEval "polyRecEval" [ toUPlc polyRec, toUPlc ptreeConstruct ]
     , goldenUEval "ptreeFirstEval" [ toUPlc ptreeFirst, toUPlc ptreeConstruct ]
     , goldenUEval "sameEmptyRoseEval" [ toUPlc sameEmptyRose, toUPlc emptyRoseConstruct ]
     , goldenUPlc "sameEmptyRose" sameEmptyRose
-    , goldenTPlcWith
-        ".tplc-read"
-        (ppThrow . fmap PLC.AsReadable)
-        "interListConstruct"
-        interListConstruct
+    , goldenTPlcReadable "interListConstruct" interListConstruct
     , goldenUEval "processInterListEval" [ toUPlc processInterList, toUPlc interListConstruct ]
   ]
 
@@ -353,12 +360,12 @@ processInterList = plc (Proxy @"foldrInterList") (
 
 typeFamilies :: TestNested
 typeFamilies = testNested "families" [
-    goldenPir "basicClosed" basicClosed
-    , goldenPir "basicOpen" basicOpen
-    , goldenPir "associated" associated
-    , goldenPir "associatedParam" associatedParam
-    , goldenPir "basicData" basicData
-    , goldenUPlcCatch "irreducible" irreducible
+    goldenPirReadable "basicClosed" basicClosed
+    , goldenPirReadable "basicOpen" basicOpen
+    , goldenPirReadable "associated" associated
+    , goldenPirReadable "associatedParam" associatedParam
+    , goldenPirReadable "basicData" basicData
+    , goldenUPlc "irreducible" irreducible
   ]
 
 type family BasicClosed a where
@@ -388,18 +395,18 @@ associated :: CompiledCode (AType Bool -> AType Bool)
 associated = plc (Proxy @"associated") (\(x :: AType Bool) -> x)
 
 -- Despite the type family being applied to a parameterized type we can still reduce it
-{-# NOINLINE paramId #-}
 paramId :: forall a . Param a -> AType (Param a) -> AType (Param a)
 paramId _ x = x
+{-# OPAQUE paramId #-}
 
 associatedParam :: CompiledCode Integer
 associatedParam = plc (Proxy @"associatedParam") (paramId (Param 1) 1)
 
 -- Here we cannot reduce the type family
-{-# NOINLINE tfId #-}
 {-# OPTIONS_GHC -Wno-incomplete-patterns #-}
 tfId :: forall a . a -> BasicClosed a -> BasicClosed a
 tfId _ x = x
+{-# OPAQUE tfId #-}
 
 irreducible :: CompiledCode Integer
 irreducible = plc (Proxy @"irreducible") (tfId True 1)

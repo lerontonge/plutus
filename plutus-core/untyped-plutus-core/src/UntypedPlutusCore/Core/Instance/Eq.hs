@@ -1,6 +1,7 @@
 -- editorconfig-checker-disable-file
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
+{-# LANGUAGE ConstraintKinds      #-}
 {-# LANGUAGE FlexibleInstances    #-}
 {-# LANGUAGE TypeOperators        #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -13,16 +14,33 @@ import UntypedPlutusCore.Core.Type
 
 import PlutusCore.DeBruijn
 import PlutusCore.Eq
-import PlutusCore.Name
+import PlutusCore.Name.Unique
 import PlutusCore.Rename.Monad
 
 import Universe
 
-import Data.Foldable (for_)
+import Data.Hashable
+import Data.Vector qualified as V
 
 instance (GEq uni, Closed uni, uni `Everywhere` Eq, Eq fun, Eq ann) =>
             Eq (Term Name uni fun ann) where
     term1 == term2 = runEqRename $ eqTermM term1 term2
+
+type HashableTermConstraints uni fun ann =
+  ( GEq uni
+  , Closed uni
+  , uni `Everywhere` Eq
+  , uni `Everywhere` Hashable
+  , Hashable ann
+  , Hashable fun
+  )
+
+-- This instance is the only logical one, and exists also in the package `vector-instances`.
+-- Since this is the same implementation as that one, there isn't even much risk of incoherence.
+instance Hashable a => Hashable (V.Vector a) where
+  hashWithSalt s = hashWithSalt s . toList
+
+instance HashableTermConstraints uni fun ann => Hashable (Term Name uni fun ann)
 
 -- Simple Structural Equality of a `Term NamedDeBruijn`. This implies three things:
 -- a) We ignore the name part of the nameddebruijn
@@ -33,13 +51,19 @@ deriving stock instance
    (GEq uni, Closed uni, uni `Everywhere` Eq, Eq fun, Eq ann) =>
    Eq (Term NamedDeBruijn uni fun ann)
 
+instance HashableTermConstraints uni fun ann => Hashable (Term NamedDeBruijn uni fun ann)
+
 deriving stock instance
    (GEq uni, Closed uni, uni `Everywhere` Eq, Eq fun, Eq ann) =>
    Eq (Term FakeNamedDeBruijn uni fun ann)
 
+instance HashableTermConstraints uni fun ann => Hashable (Term FakeNamedDeBruijn uni fun ann)
+
 deriving stock instance
    (GEq uni, Closed uni, uni `Everywhere` Eq, Eq fun, Eq ann) =>
    Eq (Term DeBruijn uni fun ann)
+
+instance HashableTermConstraints uni fun ann => Hashable (Term DeBruijn uni fun ann)
 
 deriving stock instance (GEq uni, Closed uni, uni `Everywhere` Eq, Eq fun, Eq ann,
                   Eq (Term name uni fun ann)
@@ -81,7 +105,7 @@ eqTermM (Constr ann1 i1 args1) (Constr ann2 i2 args2) = do
 eqTermM (Case ann1 a1 cs1) (Case ann2 a2 cs2) = do
     eqM ann1 ann2
     eqTermM a1 a2
-    case zipExact cs1 cs2 of
+    case zipExact (toList cs1) (toList cs2) of
         Just ps -> for_ ps $ \(t1, t2) -> eqTermM t1 t2
         Nothing -> empty
 eqTermM Constant{} _ = empty

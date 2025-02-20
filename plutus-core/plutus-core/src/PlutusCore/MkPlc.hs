@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE LambdaCase             #-}
+{-# LANGUAGE OverloadedStrings      #-}
 {-# LANGUAGE PolyKinds              #-}
 {-# LANGUAGE TupleSections          #-}
 {-# LANGUAGE TypeApplications       #-}
@@ -28,7 +29,7 @@ module PlutusCore.MkPlc
     , mkTyVar
     , tyDeclVar
     , Def (..)
-    , embed
+    , embedTerm
     , TermDef
     , TypeDef
     , FunctionType (..)
@@ -52,6 +53,8 @@ module PlutusCore.MkPlc
     , mkIterTyApp
     , mkIterTyAppNoAnn
     , mkIterKindArrow
+    , mkFreshTermLet
+    , headSpineToTerm
     ) where
 
 import PlutusPrelude
@@ -59,6 +62,8 @@ import Prelude hiding (error)
 
 import PlutusCore.Builtin
 import PlutusCore.Core
+import PlutusCore.Name.Unique
+import PlutusCore.Quote
 
 import Data.Word
 import Universe
@@ -117,20 +122,20 @@ instance TermLike (Term tyname name uni fun) tyname name uni fun where
     constr   = Constr
     kase     = Case
 
-embed :: TermLike term tyname name uni fun => Term tyname name uni fun ann -> term ann
-embed = \case
+embedTerm :: TermLike term tyname name uni fun => Term tyname name uni fun ann -> term ann
+embedTerm = \case
     Var a n           -> var a n
-    TyAbs a tn k t    -> tyAbs a tn k (embed t)
-    LamAbs a n ty t   -> lamAbs a n ty (embed t)
-    Apply a t1 t2     -> apply a (embed t1) (embed t2)
+    TyAbs a tn k t    -> tyAbs a tn k (embedTerm t)
+    LamAbs a n ty t   -> lamAbs a n ty (embedTerm t)
+    Apply a t1 t2     -> apply a (embedTerm t1) (embedTerm t2)
     Constant a c      -> constant a c
     Builtin a bi      -> builtin a bi
-    TyInst a t ty     -> tyInst a (embed t) ty
+    TyInst a t ty     -> tyInst a (embedTerm t) ty
     Error a ty        -> error a ty
-    Unwrap a t        -> unwrap a (embed t)
-    IWrap a ty1 ty2 t -> iWrap a ty1 ty2 (embed t)
-    Constr a ty i es  -> constr a ty i (fmap embed es)
-    Case a ty arg cs  -> kase a ty (embed arg) (fmap embed cs)
+    Unwrap a t        -> unwrap a (embedTerm t)
+    IWrap a ty1 ty2 t -> iWrap a ty1 ty2 (embedTerm t)
+    Constr a ty i es  -> constr a ty i (fmap embedTerm es)
+    Case a ty arg cs  -> kase a ty (embedTerm arg) (fmap embedTerm cs)
 
 -- | Make a 'Var' referencing the given 'VarDecl'.
 mkVar :: TermLike term tyname name uni fun => ann -> VarDecl tyname name uni ann -> term ann
@@ -317,3 +322,19 @@ mkIterKindArrow
     -> Kind ann
     -> Kind ann
 mkIterKindArrow ann kinds target = foldr (KindArrow ann) target kinds
+
+{- | A helper to create a single, fresh strict binding; It returns the fresh bound `Var`iable and
+a function `Term -> Term`, expecting an "in-Term" to form a let-expression.
+-}
+mkFreshTermLet :: (MonadQuote m, TermLike t tyname Name uni fun, Monoid a)
+               => Type tyname uni a -- ^ the type of binding
+               -> t a -- ^ the term bound to the fresh variable
+               -> m (t a, t a -> t a) -- ^ the fresh Var and a function that takes an "in" term to construct the Let
+mkFreshTermLet aT a = do
+    -- I wish this was less constrained to Name
+    genName <- freshName "generated"
+    pure (var mempty genName, termLet mempty (Def (VarDecl mempty genName aT) a))
+
+-- | 'apply' the head of the application to the arguments iteratively.
+headSpineToTerm :: TermLike term tyname name uni fun => HeadSpine (term ()) -> term ()
+headSpineToTerm = foldl1 (apply ())

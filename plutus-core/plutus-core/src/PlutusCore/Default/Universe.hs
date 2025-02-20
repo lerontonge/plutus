@@ -1,12 +1,7 @@
--- editorconfig-checker-disable-file
-
--- | The universe used by default and its instances.
-
 {-# OPTIONS -fno-warn-missing-pattern-synonym-signatures #-}
--- on 9.2.4 this is the flag that suppresses the above
--- warning
+-- on 9.2.4 this is the flag that suppresses the above warning
 {-# OPTIONS -Wno-missing-signatures #-}
--- 9.6 notices that all the constraints on TestTypesFromTheUniverseAreAllKnown
+-- 9.6 notices that all the constraints on 'TestTypesFromTheUniverseAreAllKnown'
 -- are redundant (which they are), but we don't care because it only exists
 -- to test that some constraints are solvable
 {-# OPTIONS -Wno-redundant-constraints #-}
@@ -14,6 +9,7 @@
 {-# LANGUAGE BlockArguments           #-}
 {-# LANGUAGE CPP                      #-}
 {-# LANGUAGE ConstraintKinds          #-}
+{-# LANGUAGE DataKinds                #-}
 {-# LANGUAGE FlexibleInstances        #-}
 {-# LANGUAGE GADTs                    #-}
 {-# LANGUAGE InstanceSigs             #-}
@@ -24,46 +20,49 @@
 {-# LANGUAGE PolyKinds                #-}
 {-# LANGUAGE RankNTypes               #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
-{-# LANGUAGE TemplateHaskell          #-}
 {-# LANGUAGE TypeApplications         #-}
 {-# LANGUAGE TypeFamilies             #-}
 {-# LANGUAGE TypeOperators            #-}
 {-# LANGUAGE UndecidableInstances     #-}
 #include "MachDeps.h"
 
--- effectfully: to the best of my experimentation, -O2 here improves performance, however by
--- inspecting GHC Core I was only able to see a difference in how the 'KnownTypeIn' instance for
--- 'Int' is compiled (one more call is inlined with -O2). This needs to be investigated.
+-- effectfully: to the best of my experimentation, -O2 here improves
+-- performance, but it's not clear why. This needs to be investigated.
 {-# OPTIONS_GHC -O2 #-}
 
+-- | The universe used by default and its instances.
 module PlutusCore.Default.Universe
     ( DefaultUni (..)
     , pattern DefaultUniList
+    , pattern DefaultUniArray
     , pattern DefaultUniPair
     , noMoreTypeFunctions
     , module Export  -- Re-exporting universes infrastructure for convenience.
     ) where
 
 import PlutusCore.Builtin
+import PlutusPrelude
+
 import PlutusCore.Crypto.BLS12_381.G1 qualified as BLS12_381.G1
 import PlutusCore.Crypto.BLS12_381.G2 qualified as BLS12_381.G2
 import PlutusCore.Crypto.BLS12_381.Pairing qualified as BLS12_381.Pairing
-import PlutusCore.Data
-import PlutusCore.Evaluation.Machine.Exception
-import PlutusCore.Evaluation.Result
-import PlutusCore.Pretty.Extra
+import PlutusCore.Data (Data)
+import PlutusCore.Evaluation.Machine.ExMemoryUsage (ArrayCostedByLength (..),
+                                                    IntegerCostedLiterally (..),
+                                                    ListCostedByLength (..),
+                                                    NumBytesCostedAsNumWords (..))
+import PlutusCore.Pretty.Extra (juxtRenderContext)
 
-import Control.Applicative
-import Data.Bits (toIntegralSized)
 import Data.ByteString (ByteString)
-import Data.Int
-import Data.Proxy
+import Data.Int (Int16, Int32, Int64, Int8)
+import Data.Proxy (Proxy (Proxy))
 import Data.Text (Text)
-import Data.Word
+import Data.Text qualified as Text
+import Data.Typeable (typeRep)
+import Data.Vector.Strict (Vector)
+import Data.Word (Word16, Word32, Word64)
 import GHC.Exts (inline, oneShot)
-import Text.Pretty
-import Text.PrettyBy
-import Text.PrettyBy.Fixity
+import Text.PrettyBy.Fixity (RenderContext, inContextM, juxtPrettyM)
 import Universe as Export
 
 {- Note [PLC types and universes]
@@ -108,6 +107,7 @@ data DefaultUni a where
     DefaultUniString :: DefaultUni (Esc Text)
     DefaultUniUnit :: DefaultUni (Esc ())
     DefaultUniBool :: DefaultUni (Esc Bool)
+    DefaultUniProtoArray :: DefaultUni (Esc Vector)
     DefaultUniProtoList :: DefaultUni (Esc [])
     DefaultUniProtoPair :: DefaultUni (Esc (,))
     DefaultUniApply :: !(DefaultUni (Esc f)) -> !(DefaultUni (Esc a)) -> DefaultUni (Esc (f a))
@@ -120,6 +120,8 @@ data DefaultUni a where
 -- so we just leave GHC with its craziness.
 pattern DefaultUniList uniA =
     DefaultUniProtoList `DefaultUniApply` uniA
+pattern DefaultUniArray uniA =
+    DefaultUniProtoArray `DefaultUniApply` uniA
 pattern DefaultUniPair uniA uniB =
     DefaultUniProtoPair `DefaultUniApply` uniA `DefaultUniApply` uniB
 
@@ -127,7 +129,7 @@ instance GEq DefaultUni where
     -- We define 'geq' manually instead of using 'deriveGEq', because the latter creates a single
     -- recursive definition and we want two instead. The reason why we want two is because this
     -- allows GHC to inline the initial step that appears non-recursive to GHC, because recursion
-    -- is hidden in the other function that is marked as @NOINLINE@ and is chosen by GHC as a
+    -- is hidden in the other function that is marked as @OPAQUE@ and is chosen by GHC as a
     -- loop-breaker, see https://wiki.haskell.org/Inlining_and_Specialisation#What_is_a_loop-breaker
     -- (we're not really sure if this is a reliable solution, but if it stops working, we won't miss
     -- very much and we've failed to settle on any other approach).
@@ -154,6 +156,9 @@ instance GEq DefaultUni where
         geqStep DefaultUniProtoList a2 = do
             DefaultUniProtoList <- Just a2
             Just Refl
+        geqStep DefaultUniProtoArray a2 = do
+            DefaultUniProtoArray <- Just a2
+            Just Refl
         geqStep DefaultUniProtoPair a2 = do
             DefaultUniProtoPair <- Just a2
             Just Refl
@@ -178,9 +183,7 @@ instance GEq DefaultUni where
 
         geqRec :: DefaultUni a1 -> DefaultUni a2 -> Maybe (a1 :~: a2)
         geqRec = geqStep
-        {-# NOINLINE geqRec #-}
-
-deriveGCompare ''DefaultUni
+        {-# OPAQUE geqRec #-}
 
 -- | For pleasing the coverage checker.
 noMoreTypeFunctions :: DefaultUni (Esc (f :: a -> b -> c -> d)) -> any
@@ -193,6 +196,7 @@ instance ToKind DefaultUni where
     toSingKind DefaultUniUnit                 = knownKind
     toSingKind DefaultUniBool                 = knownKind
     toSingKind DefaultUniProtoList            = knownKind
+    toSingKind DefaultUniProtoArray           = knownKind
     toSingKind DefaultUniProtoPair            = knownKind
     toSingKind (DefaultUniApply uniF _)       = case toSingKind uniF of _ `SingKindArrow` cod -> cod
     toSingKind DefaultUniData                 = knownKind
@@ -217,6 +221,7 @@ instance PrettyBy RenderContext (DefaultUni a) where
         DefaultUniUnit                 -> "unit"
         DefaultUniBool                 -> "bool"
         DefaultUniProtoList            -> "list"
+        DefaultUniProtoArray           -> "array"
         DefaultUniProtoPair            -> "pair"
         DefaultUniApply uniF uniA      -> uniF `juxtPrettyM` uniA
         DefaultUniData                 -> "data"
@@ -257,6 +262,8 @@ instance DefaultUni `Contains` Bool where
     knownUni = DefaultUniBool
 instance DefaultUni `Contains` [] where
     knownUni = DefaultUniProtoList
+instance DefaultUni `Contains` Vector where
+    knownUni = DefaultUniProtoArray
 instance DefaultUni `Contains` (,) where
     knownUni = DefaultUniProtoPair
 instance DefaultUni `Contains` Data where
@@ -280,6 +287,8 @@ instance KnownBuiltinTypeAst tyname DefaultUni Bool =>
     KnownTypeAst tyname DefaultUni Bool
 instance KnownBuiltinTypeAst tyname DefaultUni [a] =>
     KnownTypeAst tyname DefaultUni [a]
+instance KnownBuiltinTypeAst tyname DefaultUni (Vector a) =>
+    KnownTypeAst tyname DefaultUni (Vector a)
 instance KnownBuiltinTypeAst tyname DefaultUni (a, b) =>
     KnownTypeAst tyname DefaultUni (a, b)
 instance KnownBuiltinTypeAst tyname DefaultUni Data =>
@@ -305,6 +314,8 @@ instance KnownBuiltinTypeIn DefaultUni term Data =>
     ReadKnownIn DefaultUni term Data
 instance KnownBuiltinTypeIn DefaultUni term [a] =>
     ReadKnownIn DefaultUni term [a]
+instance KnownBuiltinTypeIn DefaultUni term (Vector a) =>
+    ReadKnownIn DefaultUni term (Vector a)
 instance KnownBuiltinTypeIn DefaultUni term (a, b) =>
     ReadKnownIn DefaultUni term (a, b)
 instance KnownBuiltinTypeIn DefaultUni term BLS12_381.G1.Element =>
@@ -328,6 +339,8 @@ instance KnownBuiltinTypeIn DefaultUni term Data =>
     MakeKnownIn DefaultUni term Data
 instance KnownBuiltinTypeIn DefaultUni term [a] =>
     MakeKnownIn DefaultUni term [a]
+instance KnownBuiltinTypeIn DefaultUni term (Vector a) =>
+    MakeKnownIn DefaultUni term (Vector a)
 instance KnownBuiltinTypeIn DefaultUni term (a, b) =>
     MakeKnownIn DefaultUni term (a, b)
 instance KnownBuiltinTypeIn DefaultUni term BLS12_381.G1.Element =>
@@ -342,86 +355,182 @@ instance TestTypesFromTheUniverseAreAllKnown DefaultUni
 
 {- Note [Integral types as Integer]
 Technically our universe only contains 'Integer', but many of the builtin functions that we would
-like to use work over 'Int' and 'Word8'.
+like to use work over 'Int', 'Word8' etc.
 
 This is inconvenient and also error-prone: dealing with a function that takes an 'Int' or 'Word8'
 means carefully downcasting the 'Integer', running the function, potentially upcasting at the end.
-And it's easy to get wrong by e.g. blindly using 'fromInteger'.
+And it's easy to get wrong by e.g. blindly using 'fromInteger' or 'fromIntegral'.
 
 Moreover, there is a latent risk here: if we *were* to build on a 32-bit architecture, then programs
 which use arguments between @maxBound :: Int32@ and @maxBound :: Int64@ would behave differently!
 
 So, what to do? We adopt the following strategy:
-- We allow lifting/unlifting 'Word8' via 'Integer', including a safe downcast in 'readKnown'.
-- We allow lifting/unlifting 'Int64' via 'Integer', including a safe downcast in 'readKnown'.
-- We allow lifting/unlifting 'Int' via 'Int64', constraining the conversion between them to
-64-bit architectures where this conversion is safe.
+- We allow lifting/unlifting bounded integral types such as 'Word8' or 'Int64' via 'Integer',
+  including a safe upcast in 'makeKnown' (which we could have on any architecture, but we only add
+  it for 64-bit for uniformity) and a safe checked downcast in 'readKnown'.
+- We allow lifting/unlifting 'Int' via 'Int64' and 'Word' via 'Word64', constraining the conversion
+  between them to 64-bit architectures where this conversion is safe.
 
 Doing this effectively bans builds on 32-bit systems, but that's fine, since we don't care about
 supporting 32-bit systems anyway, and this way any attempts to build on them will fail fast.
-
-Note: we couldn't fail the bounds check with 'AsUnliftingError', because an out-of-bounds error
-is not an internal one -- it's a normal evaluation failure, but unlifting errors
-have this connotation of being "internal".
 -}
 
-instance KnownTypeAst tyname DefaultUni Int64 where
-    toTypeAst _ = toTypeAst $ Proxy @Integer
+-- | For deriving 'KnownTypeAst', 'MakeKnown' and 'ReadKnown' instances via 'Integer'.
+newtype AsInteger a = AsInteger
+    { unAsInteger :: a
+    }
 
--- See Note [Integral types as Integer].
-instance HasConstantIn DefaultUni term => MakeKnownIn DefaultUni term Int64 where
-    makeKnown = makeKnown . toInteger
+instance KnownTypeAst tyname DefaultUni (AsInteger a) where
+    type IsBuiltin _ _ = 'False
+    type ToHoles _ _ _ = '[]
+    type ToBinds _ acc _ = acc
+    typeAst = toTypeAst $ Proxy @Integer
+
+instance (KnownBuiltinTypeIn DefaultUni term Integer, Integral a) =>
+        MakeKnownIn DefaultUni term (AsInteger a) where
+    makeKnown = makeKnown . toInteger . unAsInteger
     {-# INLINE makeKnown #-}
 
-instance HasConstantIn DefaultUni term => ReadKnownIn DefaultUni term Int64 where
+instance (KnownBuiltinTypeIn DefaultUni term Integer, Integral a, Bounded a, Typeable a) =>
+        ReadKnownIn DefaultUni term (AsInteger a) where
     readKnown term =
-        -- See Note [Performance of KnownTypeIn instances].
+        -- See Note [Performance of ReadKnownIn and MakeKnownIn instances].
         -- Funnily, we don't need 'inline' here, unlike in the default implementation of 'readKnown'
         -- (go figure why).
         inline readKnownConstant term >>= oneShot \(i :: Integer) ->
-            -- We don't make use here of `toIntegralSized` because of performance considerations,
+            -- We don't make use here of 'toIntegralSized' because of performance considerations,
             -- see: https://gitlab.haskell.org/ghc/ghc/-/issues/19641
-            -- OPTIMIZE: benchmark an alternative `integerToIntMaybe`, modified from 'ghc-bignum'
-            if fromIntegral (minBound :: Int64) <= i && i <= fromIntegral (maxBound :: Int64)
-                then pure $ fromIntegral i
-                else throwing_ _EvaluationFailure
+            -- TODO: benchmark an alternative 'integerToIntMaybe', modified from @ghc-bignum@
+            if fromIntegral (minBound :: a) <= i && i <= fromIntegral (maxBound :: a)
+                then pure . AsInteger $ fromIntegral i
+                else throwing _OperationalUnliftingError . MkUnliftingError $ fold
+                        [ Text.pack $ show i
+                        , " is not within the bounds of "
+                        , Text.pack . show . typeRep $ Proxy @a
+                        ]
     {-# INLINE readKnown #-}
 
 #if WORD_SIZE_IN_BITS == 64
 -- See Note [Integral types as Integer].
-
-instance KnownTypeAst tyname DefaultUni Int where
-    toTypeAst _ = toTypeAst $ Proxy @Integer
-
-instance HasConstantIn DefaultUni term => MakeKnownIn DefaultUni term Int where
-    -- Convert Int-to-Integer via Int64.  We could go directly `toInteger`, but this way
-    -- is more explicit and it'll turn into the same thing anyway.
-    -- Although this conversion is safe regardless of the CPU arch (unlike the opposite conversion),
-    -- we constrain it to 64-bit for the sake of uniformity.
-    makeKnown = makeKnown . fromIntegral @Int @Int64
-    {-# INLINE makeKnown #-}
-
-instance HasConstantIn DefaultUni term => ReadKnownIn DefaultUni term Int where
-    -- Convert Integer-to-Int via Int64. This instance is safe only for 64-bit architecture
-    -- where Int===Int64 (i.e. no truncation happening).
+deriving via AsInteger Int instance
+    KnownTypeAst tyname DefaultUni Int
+deriving via AsInteger Int instance KnownBuiltinTypeIn DefaultUni term Integer =>
+    MakeKnownIn DefaultUni term Int
+instance KnownBuiltinTypeIn DefaultUni term Integer => ReadKnownIn DefaultUni term Int where
     readKnown term = fromIntegral @Int64 @Int <$> readKnown term
+    {-# INLINE readKnown #-}
+
+deriving via AsInteger Word instance
+    KnownTypeAst tyname DefaultUni Word
+deriving via AsInteger Word instance KnownBuiltinTypeIn DefaultUni term Integer =>
+    MakeKnownIn DefaultUni term Word
+instance KnownBuiltinTypeIn DefaultUni term Integer => ReadKnownIn DefaultUni term Word where
+    readKnown term = fromIntegral @Word64 @Word <$> readKnown term
     {-# INLINE readKnown #-}
 #endif
 
-instance KnownTypeAst tyname DefaultUni Word8 where
-    toTypeAst _ = toTypeAst $ Proxy @Integer
+deriving via AsInteger Int8 instance
+    KnownTypeAst tyname DefaultUni Int8
+deriving via AsInteger Int8 instance KnownBuiltinTypeIn DefaultUni term Integer =>
+    MakeKnownIn DefaultUni term Int8
+deriving via AsInteger Int8 instance KnownBuiltinTypeIn DefaultUni term Integer =>
+    ReadKnownIn DefaultUni term Int8
 
--- See Note [Integral types as Integer].
-instance HasConstantIn DefaultUni term => MakeKnownIn DefaultUni term Word8 where
-    makeKnown = makeKnown . toInteger
-    {-# INLINE makeKnown #-}
+deriving via AsInteger Int16 instance
+    KnownTypeAst tyname DefaultUni Int16
+deriving via AsInteger Int16 instance KnownBuiltinTypeIn DefaultUni term Integer =>
+    MakeKnownIn DefaultUni term Int16
+deriving via AsInteger Int16 instance KnownBuiltinTypeIn DefaultUni term Integer =>
+    ReadKnownIn DefaultUni term Int16
 
-instance HasConstantIn DefaultUni term => ReadKnownIn DefaultUni term Word8 where
+deriving via AsInteger Int32 instance
+    KnownTypeAst tyname DefaultUni Int32
+deriving via AsInteger Int32 instance KnownBuiltinTypeIn DefaultUni term Integer =>
+    MakeKnownIn DefaultUni term Int32
+deriving via AsInteger Int32 instance KnownBuiltinTypeIn DefaultUni term Integer =>
+    ReadKnownIn DefaultUni term Int32
+
+deriving via AsInteger Int64 instance
+    KnownTypeAst tyname DefaultUni Int64
+deriving via AsInteger Int64 instance KnownBuiltinTypeIn DefaultUni term Integer =>
+    MakeKnownIn DefaultUni term Int64
+deriving via AsInteger Int64 instance KnownBuiltinTypeIn DefaultUni term Integer =>
+    ReadKnownIn DefaultUni term Int64
+
+deriving via AsInteger Word8 instance
+    KnownTypeAst tyname DefaultUni Word8
+deriving via AsInteger Word8 instance KnownBuiltinTypeIn DefaultUni term Integer =>
+    MakeKnownIn DefaultUni term Word8
+deriving via AsInteger Word8 instance KnownBuiltinTypeIn DefaultUni term Integer =>
+    ReadKnownIn DefaultUni term Word8
+
+deriving via AsInteger Word16 instance
+    KnownTypeAst tyname DefaultUni Word16
+deriving via AsInteger Word16 instance KnownBuiltinTypeIn DefaultUni term Integer =>
+    MakeKnownIn DefaultUni term Word16
+deriving via AsInteger Word16 instance KnownBuiltinTypeIn DefaultUni term Integer =>
+    ReadKnownIn DefaultUni term Word16
+
+deriving via AsInteger Word32 instance
+    KnownTypeAst tyname DefaultUni Word32
+deriving via AsInteger Word32 instance KnownBuiltinTypeIn DefaultUni term Integer =>
+    MakeKnownIn DefaultUni term Word32
+deriving via AsInteger Word32 instance KnownBuiltinTypeIn DefaultUni term Integer =>
+    ReadKnownIn DefaultUni term Word32
+
+deriving via AsInteger Word64 instance
+    KnownTypeAst tyname DefaultUni Word64
+deriving via AsInteger Word64 instance KnownBuiltinTypeIn DefaultUni term Integer =>
+    MakeKnownIn DefaultUni term Word64
+deriving via AsInteger Word64 instance KnownBuiltinTypeIn DefaultUni term Integer =>
+    ReadKnownIn DefaultUni term Word64
+
+deriving newtype instance
+    KnownTypeAst tyname DefaultUni NumBytesCostedAsNumWords
+deriving newtype instance KnownBuiltinTypeIn DefaultUni term Integer =>
+    MakeKnownIn DefaultUni term NumBytesCostedAsNumWords
+deriving newtype instance KnownBuiltinTypeIn DefaultUni term Integer =>
+    ReadKnownIn DefaultUni term NumBytesCostedAsNumWords
+
+deriving newtype instance
+    KnownTypeAst tyname DefaultUni IntegerCostedLiterally
+deriving newtype instance KnownBuiltinTypeIn DefaultUni term Integer =>
+    MakeKnownIn DefaultUni term IntegerCostedLiterally
+deriving newtype instance KnownBuiltinTypeIn DefaultUni term Integer =>
+    ReadKnownIn DefaultUni term IntegerCostedLiterally
+
+deriving newtype instance KnownTypeAst tyname DefaultUni a =>
+    KnownTypeAst tyname DefaultUni (ListCostedByLength a)
+deriving newtype instance KnownBuiltinTypeIn DefaultUni term [a] =>
+    MakeKnownIn DefaultUni term (ListCostedByLength a)
+deriving newtype instance KnownBuiltinTypeIn DefaultUni term [a] =>
+    ReadKnownIn DefaultUni term (ListCostedByLength a)
+
+deriving newtype instance KnownTypeAst tyname DefaultUni a =>
+    KnownTypeAst tyname DefaultUni (ArrayCostedByLength a)
+deriving newtype instance KnownBuiltinTypeIn DefaultUni term (Vector a) =>
+    MakeKnownIn DefaultUni term (ArrayCostedByLength a)
+deriving newtype instance KnownBuiltinTypeIn DefaultUni term (Vector a) =>
+    ReadKnownIn DefaultUni term (ArrayCostedByLength a)
+
+deriving via AsInteger Natural instance
+    KnownTypeAst tyname DefaultUni Natural
+deriving via AsInteger Natural instance KnownBuiltinTypeIn DefaultUni term Integer =>
+    MakeKnownIn DefaultUni term Natural
+instance KnownBuiltinTypeIn DefaultUni term Integer => ReadKnownIn DefaultUni term Natural where
     readKnown term =
+        -- See Note [Performance of ReadKnownIn and MakeKnownIn instances].
+        -- Funnily, we don't need 'inline' here, unlike in the default implementation of 'readKnown'
+        -- (go figure why).
         inline readKnownConstant term >>= oneShot \(i :: Integer) ->
-           case toIntegralSized i of
-               Just w8 -> pure w8
-               _       -> throwing_ _EvaluationFailure
+            -- TODO: benchmark alternatives:signumInteger,integerIsNegative,integerToNaturalThrow
+            if i >= 0
+            -- TODO: benchmark alternatives: ghc8.10 naturalFromInteger, ghc>=9 integerToNatural
+            then pure $ fromInteger i
+            else throwing _OperationalUnliftingError . MkUnliftingError $ fold
+                 [ Text.pack $ show i
+                 , " is not within the bounds of Natural"
+                 ]
     {-# INLINE readKnown #-}
 
 {- Note [Stable encoding of tags]
@@ -429,7 +538,7 @@ instance HasConstantIn DefaultUni term => ReadKnownIn DefaultUni term Word8 wher
 universe and we need serialised things to be extremely stable, hence the definitions of 'encodeUni'
 and 'decodeUni' must be amended only in a backwards compatible manner.
 
-See Note [Stable encoding of PLC]
+See Note [Stable encoding of TPLC]
 -}
 
 instance Closed DefaultUni where
@@ -440,6 +549,7 @@ instance Closed DefaultUni where
         , constr `Permits` ()
         , constr `Permits` Bool
         , constr `Permits` []
+        , constr `Permits` Vector
         , constr `Permits` (,)
         , constr `Permits` Data
         , constr `Permits` BLS12_381.G1.Element
@@ -461,6 +571,7 @@ instance Closed DefaultUni where
     encodeUni DefaultUniBLS12_381_G1_Element = [9]
     encodeUni DefaultUniBLS12_381_G2_Element = [10]
     encodeUni DefaultUniBLS12_381_MlResult   = [11]
+    encodeUni DefaultUniProtoArray           = [12]
 
     -- See Note [Decoding universes].
     -- See Note [Stable encoding of tags].
@@ -481,6 +592,7 @@ instance Closed DefaultUni where
         9  -> k DefaultUniBLS12_381_G1_Element
         10 -> k DefaultUniBLS12_381_G2_Element
         11 -> k DefaultUniBLS12_381_MlResult
+        12 -> k DefaultUniProtoArray
         _  -> empty
 
     bring
@@ -492,6 +604,8 @@ instance Closed DefaultUni where
     bring _ DefaultUniUnit r = r
     bring _ DefaultUniBool r = r
     bring p (DefaultUniProtoList `DefaultUniApply` uniA) r =
+        bring p uniA r
+    bring p (DefaultUniProtoArray `DefaultUniApply` uniA) r =
         bring p uniA r
     bring p (DefaultUniProtoPair `DefaultUniApply` uniA `DefaultUniApply` uniB) r =
         bring p uniA $ bring p uniB r

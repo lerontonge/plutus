@@ -52,7 +52,7 @@ data TypeEvalCheckError uni fun
           !(Normalized (Type TyName uni ()))
     | TypeEvalCheckErrorException !String
     | TypeEvalCheckErrorIllEvaled
-          !(EvaluationResult (Term TyName Name uni fun ()))
+          !(EvaluationResult (HeadSpine (Term TyName Name uni fun ())))
           !(EvaluationResult (Term TyName Name uni fun ()))
       -- ^ The former is an expected result of evaluation, the latter -- is an actual one.
 makeClassyPrisms ''TypeEvalCheckError
@@ -73,6 +73,7 @@ data TypeEvalCheckResult uni fun = TypeEvalCheckResult
 
 instance ( PrettyBy config (Type TyName uni ())
          , PrettyBy config (Term TyName Name uni fun ())
+         , PrettyBy config (HeadSpine (Term TyName Name uni fun ()))
          , PrettyBy config (Error uni fun ())
          ) => PrettyBy config (TypeEvalCheckError uni fun) where
     prettyBy config (TypeEvalCheckErrorIllFormed err)             =
@@ -94,11 +95,11 @@ type TypeEvalCheckM uni fun = Either (TypeEvalCheckError uni fun)
 typeEvalCheckBy
     :: ( uni ~ DefaultUni, fun ~ DefaultFun
        , KnownTypeAst TyName uni a, MakeKnown (Term TyName Name uni fun ()) a
-       , PrettyPlc internal
+       , PrettyPlc structural
        )
     => (Term TyName Name uni fun () ->
            Either
-               (EvaluationException user internal (Term TyName Name uni fun ()))
+               (EvaluationException structural operational (Term TyName Name uni fun ()))
                (Term TyName Name uni fun ()))
        -- ^ An evaluator.
     -> TermOf (Term TyName Name uni fun ()) a
@@ -110,9 +111,9 @@ typeEvalCheckBy eval (TermOf term (x :: a)) = TermOf term <$> do
         config <- getDefTypeCheckConfig ()
         inferType config term
     if tyExpected == tyActual
-        then case extractEvaluationResult $ eval term of
+        then case splitStructuralOperational $ eval term of
                 Right valActual ->
-                    if valExpected == valActual
+                    if valExpected == fmap HeadOnly valActual
                         then return $ TypeEvalCheckResult tyExpected valActual
                         else throwError $ TypeEvalCheckErrorIllEvaled valExpected valActual
                 Left exc        -> throwError $ TypeEvalCheckErrorException $ show exc
@@ -127,11 +128,11 @@ unsafeTypeEvalCheck
     => TermOf (Term TyName Name uni fun ()) a
     -> TermOf (Term TyName Name uni fun ()) (EvaluationResult (Term TyName Name uni fun ()))
 unsafeTypeEvalCheck termOfTbv = do
-    let errOrRes = typeEvalCheckBy (evaluateCkNoEmit defaultBuiltinsRuntime) termOfTbv
+    let errOrRes = typeEvalCheckBy (evaluateCkNoEmit defaultBuiltinsRuntimeForTesting) termOfTbv
     case errOrRes of
         Left err         -> error $ concat
             [ prettyPlcErrorString err
             , "\nin\n"
-            , render . prettyPlcClassicDebug $ _termOfTerm termOfTbv
+            , render . prettyPlcClassicSimple $ _termOfTerm termOfTbv
             ]
         Right termOfTecr -> _termCheckResultValue <$> termOfTecr

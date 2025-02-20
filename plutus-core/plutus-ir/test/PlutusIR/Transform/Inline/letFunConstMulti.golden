@@ -1,0 +1,4 @@
+let
+  !constFun : integer -> integer -> integer = \(x : integer) (y : integer) -> x
+in
+\(y : integer) -> 3

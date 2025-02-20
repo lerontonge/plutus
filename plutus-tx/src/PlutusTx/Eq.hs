@@ -4,6 +4,7 @@ module PlutusTx.Eq (Eq(..), (/=)) where
 import PlutusTx.Bool
 import PlutusTx.Builtins qualified as Builtins
 import PlutusTx.Either (Either (..))
+import PlutusTx.These
 import Prelude (Maybe (..))
 
 {- HLINT ignore -}
@@ -18,9 +19,9 @@ class Eq a where
     -- (/=) deliberately omitted, to make this a one-method class which has a
     -- simpler representation
 
-{-# INLINABLE (/=) #-}
 (/=) :: Eq a => a -> a -> Bool
 x /= y = not (x == y)
+{-# INLINABLE (/=) #-}
 
 instance Eq Builtins.Integer where
     {-# INLINABLE (==) #-}
@@ -77,3 +78,10 @@ instance Eq () where
 instance (Eq a, Eq b) => Eq (a, b) where
     {-# INLINABLE (==) #-}
     (a, b) == (a', b') = a == a' && b == b'
+
+instance (Eq a, Eq b) => Eq (These a b) where
+    {-# INLINABLE (==) #-}
+    (This a) == (This a')        = a == a'
+    (That b) == (That b')        = b == b'
+    (These a b) == (These a' b') = a == a' && b == b'
+    _ == _                       = False

@@ -1,0 +1,8 @@
+let
+  unit = all a. a -> a
+in
+let
+  data SomeType | match_SomeType where
+    Constr : unit -> SomeType
+in
+Constr (error {unit})

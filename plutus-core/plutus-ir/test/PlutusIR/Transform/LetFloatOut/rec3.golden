@@ -1,0 +1,7 @@
+letrec
+  !j : integer = addInteger 3 j
+in
+let
+  !k : integer = addInteger 3 j
+in
+addInteger 5 j

@@ -1,0 +1,7 @@
+let
+  !simple : integer = (\(y : integer) -> y) 1
+in
+let
+  !variableCapture : integer = (\(y : integer) -> 42) 24
+in
+42

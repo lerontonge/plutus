@@ -1,0 +1,7 @@
+let
+  ~y : integer = trace {integer} "hello" 1
+in
+let
+  !x : integer = y
+in
+addInteger y (addInteger x x)

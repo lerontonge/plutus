@@ -1,0 +1,4 @@
+letrec
+  !unitval : all a. a -> a = /\a -> \(x : a) -> x
+in
+unitval

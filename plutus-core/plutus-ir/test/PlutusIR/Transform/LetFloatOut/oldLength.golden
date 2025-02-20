@@ -1,0 +1,5 @@
+\(x : all a. a -> a -> a) ->
+  let
+    !i : integer = (\(y : integer) -> let !j : integer = y in y) 5
+  in
+  i

@@ -27,7 +27,8 @@ import PlutusCore qualified as PLC
 import PlutusCore.Annotation
 import PlutusCore.Builtin qualified as PLC
 import PlutusCore.MkPlc (mkIterApp)
-import PlutusCore.Name
+import PlutusCore.Name.Unique
+import PlutusCore.Name.UniqueMap qualified as UMap
 import PlutusCore.Quote
 import PlutusCore.Rename (Dupable, dupable, liftDupable)
 import PlutusPrelude
@@ -36,15 +37,17 @@ import UntypedPlutusCore.Core qualified as UPLC
 import UntypedPlutusCore.Core.Plated
 import UntypedPlutusCore.Core.Type
 import UntypedPlutusCore.MkUPlc
+import UntypedPlutusCore.Purity
 import UntypedPlutusCore.Rename ()
 import UntypedPlutusCore.Size
 import UntypedPlutusCore.Subst
+import UntypedPlutusCore.Transform.Simplifier (SimplifierStage (Inline), SimplifierT,
+                                               recordSimplification)
 
 import Control.Lens hiding (Strict)
 import Control.Monad.Extra
 import Control.Monad.Reader
 import Control.Monad.State
-import Data.Foldable
 import Witherable (wither)
 
 {- Note [Differences from PIR inliner]
@@ -117,13 +120,20 @@ type InliningConstraints name uni fun =
   )
 
 -- See Note [Differences from PIR inliner] 2
-data InlineInfo name a = InlineInfo {_usages :: Usages.Usages, _hints :: InlineHints name a}
+data InlineInfo name fun a = InlineInfo
+  { _iiUsages                  :: Usages.Usages
+  , _iiHints                   :: InlineHints name a
+  , _iiBuiltinSemanticsVariant :: PLC.BuiltinSemanticsVariant fun
+  , _iiInlineConstants         :: Bool
+  }
+
+makeLenses ''InlineInfo
 
 -- Using a concrete monad makes a very large difference to the performance of this module
 -- (determined from profiling)
 
 -- | The monad the inliner runs in.
-type InlineM name uni fun a = ReaderT (InlineInfo name a) (StateT (S name uni fun a) Quote)
+type InlineM name uni fun a = ReaderT (InlineInfo name fun a) (StateT (S name uni fun a) Quote)
 
 -- | Look up the unprocessed variable in the substitution.
 lookupTerm ::
@@ -131,7 +141,7 @@ lookupTerm ::
   name ->
   S name uni fun a ->
   Maybe (InlineTerm name uni fun a)
-lookupTerm n s = lookupName n $ s ^. subst . termEnv . unTermEnv
+lookupTerm n s = UMap.lookupName n $ s ^. subst . termEnv . unTermEnv
 
 -- | Insert the unprocessed variable into the substitution.
 extendTerm ::
@@ -143,14 +153,14 @@ extendTerm ::
   -- | The substitution.
   S name uni fun a ->
   S name uni fun a
-extendTerm n clos s = s & subst . termEnv . unTermEnv %~ insertByName n clos
+extendTerm n clos s = s & subst . termEnv . unTermEnv %~ UMap.insertByName n clos
 
 lookupVarInfo ::
   (HasUnique name TermUnique) =>
   name ->
   S name uni fun a ->
   Maybe (VarInfo name uni fun a)
-lookupVarInfo n s = lookupName n $ s ^. vars
+lookupVarInfo n s = UMap.lookupName n $ s ^. vars
 
 extendVarInfo ::
   (HasUnique name TermUnique) =>
@@ -158,25 +168,30 @@ extendVarInfo ::
   VarInfo name uni fun a ->
   S name uni fun a ->
   S name uni fun a
-extendVarInfo n info s = s & vars %~ insertByName n info
+extendVarInfo n info s = s & vars %~ UMap.insertByName n info
 
 {- | Inline simple bindings. Relies on global uniqueness, and preserves it.
 See Note [Inlining and global uniqueness]
 -}
 inline ::
   forall name uni fun m a.
-  (ExternalConstraints name uni fun m) =>
+  ExternalConstraints name uni fun m =>
+  -- | inline constants
+  Bool ->
   InlineHints name a ->
+  PLC.BuiltinSemanticsVariant fun ->
   Term name uni fun a ->
-  m (Term name uni fun a)
-inline hints t =
-  let
-    inlineInfo :: InlineInfo name a
-    inlineInfo = InlineInfo usgs hints
-    usgs :: Usages.Usages
-    usgs = Usages.termUsages t
-   in
-    liftQuote $ flip evalStateT mempty $ flip runReaderT inlineInfo $ processTerm t
+  SimplifierT name uni fun a m (Term name uni fun a)
+inline inlineConstants hints builtinSemanticsVariant t = do
+  result <-
+    liftQuote $ flip evalStateT mempty $ runReaderT (processTerm t) InlineInfo
+      { _iiUsages = Usages.termUsages t
+      , _iiHints  = hints
+      , _iiBuiltinSemanticsVariant = builtinSemanticsVariant
+      , _iiInlineConstants = inlineConstants
+      }
+  recordSimplification t Inline result
+  return result
 
 -- See Note [Differences from PIR inliner] 3
 
@@ -251,7 +266,7 @@ processSingleBinding body (Def vd@(UVarDecl a n) rhs0) = do
         VarInfo
           { _varBinders = binders
           , _varRhs = rhs
-          , _varRhsBody = (Done (dupable rhsBody))
+          , _varRhsBody = Done (dupable rhsBody)
           }
       pure . Just $ Def vd rhs
     Nothing -> pure Nothing
@@ -274,7 +289,7 @@ maybeAddSubst body a n rhs0 = do
   rhs <- processTerm rhs0
 
   -- Check whether we've been told specifically to inline this
-  hints <- asks _hints
+  hints <- view iiHints
   let hinted = shouldInline hints a n
 
   if hinted -- if we've been told specifically, then do it right away
@@ -299,7 +314,8 @@ shouldUnconditionallyInline ::
   InlineM name uni fun a Bool
 shouldUnconditionallyInline n rhs body = do
   isTermPure <- checkPurity rhs
-  preUnconditional isTermPure ||^ postUnconditional isTermPure
+  inlineConstants <- view iiInlineConstants
+  preUnconditional isTermPure ||^ postUnconditional inlineConstants isTermPure
   where
     -- similar to the paper, preUnconditional inlining checks that the binder is 'OnceSafe'.
     -- I.e., it's used at most once AND it neither duplicate code or work.
@@ -310,11 +326,14 @@ shouldUnconditionallyInline n rhs body = do
     -- See Note [Inlining approach and 'Secrets of the GHC Inliner'] and [Inlining and
     -- purity]. This is the case where we don't know that the number of occurrences is
     -- exactly one, so there's no point checking if the term is immediately evaluated.
-    postUnconditional isTermPure = pure isTermPure &&^ acceptable rhs
+    postUnconditional inlineConstants isTermPure =
+      pure isTermPure &&^ acceptable inlineConstants rhs
 
 -- | Check if term is pure. See Note [Inlining and purity]
-checkPurity :: Term name uni fun a -> InlineM name uni fun a Bool
-checkPurity t = pure $ isPure t
+checkPurity :: PLC.ToBuiltinMeaning uni fun => Term name uni fun a -> InlineM name uni fun a Bool
+checkPurity t = do
+  builtinSemanticsVariant <- view iiBuiltinSemanticsVariant
+  pure $ isPure builtinSemanticsVariant t
 
 nameUsedAtMostOnce ::
   forall name uni fun a.
@@ -322,9 +341,31 @@ nameUsedAtMostOnce ::
   name ->
   InlineM name uni fun a Bool
 nameUsedAtMostOnce n = do
-  usgs <- asks _usages
+  usgs <- view iiUsages
   -- 'inlining' terms used 0 times is a cheap way to remove dead code while we're here
   pure $ Usages.getUsageCount n usgs <= 1
+
+isFirstVarBeforeEffects
+    :: forall name uni fun ann. InliningConstraints name uni fun
+    => name
+    -> Term name uni fun ann
+    -> InlineM name uni fun ann Bool
+isFirstVarBeforeEffects n t = do
+  builtinSemanticsVariant <- view iiBuiltinSemanticsVariant
+  -- This can in the worst case traverse a lot of the term, which could lead to us
+  -- doing ~quadratic work as we process the program. However in practice most terms
+  -- have a relatively short evaluation order before we hit Unknown, so it's not too bad.
+  pure $ go (unEvalOrder (termEvaluationOrder builtinSemanticsVariant t))
+  where
+    -- Found the variable we're looking for!
+    go ((EvalTerm _ _ (Var _ n')):_) | n == n' = True
+    -- Found a pure term, ignore it and continue
+    go ((EvalTerm Pure _ _):rest) = go rest
+    -- Found a possibly impure term, our variable is definitely not first
+    go ((EvalTerm MaybeImpure _ _):_) = False
+    -- Don't know, be conservative
+    go (Unknown:_) = False
+    go [] = False
 
 effectSafe ::
   forall name uni fun a.
@@ -335,41 +376,20 @@ effectSafe ::
   Bool ->
   InlineM name uni fun a Bool
 effectSafe body n purity = do
-  -- This can in the worst case traverse a lot of the term, which could lead to us
-  -- doing ~quadratic work as we process the program. However in practice most term
-  -- types will make it give up, so it's not too bad.
-  let immediatelyEvaluated = case firstEffectfulTerm body of
-        Just (Var _ n') -> n == n'
-        _               -> False
+  immediatelyEvaluated <- isFirstVarBeforeEffects n body
   pure $ purity || immediatelyEvaluated
 
 {- | Should we inline? Should only inline things that won't duplicate work or code.
 See Note [Inlining approach and 'Secrets of the GHC Inliner']
 -}
-acceptable :: Term name uni fun a -> InlineM name uni fun a Bool
-acceptable t =
+acceptable ::
+  -- | inline constants
+  Bool ->
+  Term name uni fun a ->
+  InlineM name uni fun a Bool
+acceptable inlineConstants t =
   -- See Note [Inlining criteria]
-  pure $ costIsAcceptable t && sizeIsAcceptable t
-
-{- |
-Try to identify the first sub term which will be evaluated in the given term and
-which could have an effect. 'Nothing' indicates that there's no term to evaluate.
--}
-firstEffectfulTerm :: Term name uni fun a -> Maybe (Term name uni fun a)
-firstEffectfulTerm = goTerm
-  where
-    goTerm = \case
-      Apply _ fun args -> goTerm fun <|> goTerm args
-      Force _ t        -> goTerm t
-      Constr _ _ []    -> Nothing
-      Constr _ _ ts    -> asum $ goTerm <$> ts
-      Case _ t _       -> goTerm t
-      t@Var{}          -> Just t
-      t@Error{}        -> Just t
-      Builtin{}        -> Nothing
-      LamAbs{}         -> Nothing
-      Constant{}       -> Nothing
-      Delay{}          -> Nothing
+  pure $ costIsAcceptable t && sizeIsAcceptable inlineConstants t
 
 {- | Is the cost increase (in terms of evaluation work) of inlining a variable whose RHS is
 the given term acceptable?
@@ -398,8 +418,12 @@ costIsAcceptable = \case
 {- | Is the size increase (in the AST) of inlining a variable whose RHS is
 the given term acceptable?
 -}
-sizeIsAcceptable :: Term name uni fun a -> Bool
-sizeIsAcceptable = \case
+sizeIsAcceptable ::
+  -- | inline constants
+  Bool ->
+  Term name uni fun a ->
+  Bool
+sizeIsAcceptable inlineConstants = \case
   Builtin{} -> True
   Var{} -> True
   Error{} -> True
@@ -408,41 +432,16 @@ sizeIsAcceptable = \case
   -- Inlining constructors of size 1 or 0 seems okay
   Constr _ _ es -> case es of
     []  -> True
-    [e] -> sizeIsAcceptable e
+    [e] -> sizeIsAcceptable inlineConstants e
     _   -> False
   -- Cases are pretty big, due to the case branches
   Case{} -> False
-  -- Constants can be big! We could check the size here and inline if they're
-  -- small, but probably not worth it
-  Constant{} -> False
+  -- Inlining constants is deemed acceptable if the 'inlineConstants'
+  -- flag is turned on, see Note [Inlining constants].
+  Constant{} -> inlineConstants
   Apply{} -> False
-  Force _ t -> sizeIsAcceptable t
-  Delay _ t -> sizeIsAcceptable t
-
-isPure :: Term name uni fun a -> Bool
-isPure = go True
-  where
-    -- See Note [delayAndVarIsPure]
-    go delayAndVarIsPure = \case
-      Var{}                         -> delayAndVarIsPure
-      -- These are syntactically values that won't reduce further
-      LamAbs{}                      -> True
-      Constant{}                    -> True
-      Delay _ body                  -> delayAndVarIsPure || go delayAndVarIsPure body
-      -- This case is not needed in PIR's `isPure`, because PIR's beta-reduction pass
-      -- turns terms like this into `Let` bindings.
-      Apply _ (LamAbs _ _ body) arg -> go True arg && go delayAndVarIsPure body
-      -- Applications can do work
-      Apply{}                       -> False
-      Force _ body                  -> go False body
-      -- A constructor is pure if all of its elements are pure
-      Constr _ _ es                 -> all (go True) es
-      -- A case will compute the case branch, which could do anything
-      Case{}                        -> False
-      -- Error is obviously not pure
-      Error{}                       -> False
-      -- See Note [Differences from PIR inliner] 5
-      Builtin{}                     -> True
+  Force _ t -> sizeIsAcceptable inlineConstants t
+  Delay _ t -> sizeIsAcceptable inlineConstants t
 
 -- | Fully apply and beta reduce.
 fullyApplyAndBetaReduce ::
@@ -483,7 +482,7 @@ fullyApplyAndBetaReduce info args0 = do
   go rhsBody (info ^. varBinders) args0
 
 {- | This works in the same way as `PlutusIR.Transform.Inline.CallSiteInline.inlineSaturatedApp`.
-See Note [Inlining and beta reduction of fully applied functions].
+See Note [Inlining and beta reduction of functions].
 -}
 inlineSaturatedApp ::
   forall name uni fun a.
@@ -509,33 +508,3 @@ inlineSaturatedApp t
               pure $ if sizeIsOk && costIsOk && rhsPure then fullyApplied else t
   | otherwise = pure t
 
-{- Note [delayAndVarIsPure]
-
-To determine whether a `Term` is pure, we recurse into the `Term`. If we do not descend
-into a `Force` node, then a `Var` node and a `Delay` node is always pure
-(see Note [Purity, strictness, and variables] for why `Var` nodes are pure).
-
-Once we descend into the body of a `Force` node, however, `Var` and `Delay` nodes can
-no longer be considered unconditionally pure, because the following terms are impure:
-
-```
-force (delay impure)
-force (force (delay (delay impure)))
-force x  -- because `x` may expand into an delayed impure `Term`
-force (force (delay x))
-```
-
-This is the purpose of the `delayAndVarIsPure` flag, which is set to `False` when
-descending into the body of `Force`.
-
-This can potentially be improved, e.g., it would consider the following pure terms
-as impure:
-
-```
-force (delay (delay impure))
-force (delay x)
-```
-
-However, since we can rely on `forceDelayCancel` to cancel adjacent `force` and `delay`
-nodes, we do not need to be too clever here.
--}

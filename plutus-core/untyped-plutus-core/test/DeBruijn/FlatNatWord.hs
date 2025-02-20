@@ -73,13 +73,14 @@ prop_OldVsNewIndex = testProperty "oldVsNew Index" $ property $ do
     Hedgehog.assert $ unflat @Index encoded `isCompatible` unflat @OldIndex encoded
 
 test_flatNatWord :: TestNested
-test_flatNatWord = testNested "FlatNatWord" $ fmap pure
-    [ test_MinBound
-    , test_MaxBound
-    , prop_CompatInBounds
-    , prop_DecLarger
-    , prop_OldVsNewIndex
-    ]
+test_flatNatWord =
+    testNested "FlatNatWord" $ map embed
+        [ test_MinBound
+        , test_MaxBound
+        , prop_CompatInBounds
+        , prop_DecLarger
+        , prop_OldVsNewIndex
+        ]
 
 -- * Old implementation of Flat Index copy-pasted and renamed to OldIndex
 
@@ -88,9 +89,9 @@ The old implementation relied on this function which is safe
 *only* for 64-bit systems. There were previously safety checks to fail compilation
 on other systems, but we removed them  since we only test on 64-bit systems afterall.
 -}
-{-# INLINABLE naturalToWord64Maybe #-}
 naturalToWord64Maybe :: Natural -> Maybe Word64
 naturalToWord64Maybe n = fromIntegral <$> naturalToWordMaybe n
+{-# INLINABLE naturalToWord64Maybe #-}
 
 newtype OldIndex = OldIndex {unOldIndex :: Word64}
   deriving stock (Generic)

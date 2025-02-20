@@ -1,0 +1,9 @@
+letrec
+  data (List :: * -> *) a | match_List where
+    Nil : List a
+    Cons : a -> List a -> List a
+in
+let
+  !x : List integer = Cons {integer} 1 (Nil {integer})
+in
+x

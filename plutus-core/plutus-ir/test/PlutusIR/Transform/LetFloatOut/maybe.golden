@@ -1,0 +1,10 @@
+let
+  data (Maybe :: * -> *) a | match_Maybe where
+    Nothing : Maybe a
+    Just : a -> Maybe a
+in
+\(x : integer) ->
+  let
+    !j : integer = addInteger 3 x
+  in
+  Just {all a. a -> a} (/\a -> \(x : a) -> x)

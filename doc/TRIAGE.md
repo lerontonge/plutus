@@ -2,14 +2,21 @@
 
 ## Preface
 
-This document elaborates on the triage process that we use to prioritize and resolve incoming requests, bug reports, questions -- anything relevant to the contents of this repo that the reporter wants to bring to our attention. The goal is to make sure that every issue or pull request opened on GitHub gets evaluated, classified, put into the queue and eventually resolved.
+This document elaborates on the triage process that we use to prioritize and resolve incoming requests, bug reports, questions -- anything relevant to the contents of this repo that the reporter wants to bring to our attention. The goal is to make sure that every report gets evaluated, classified, put into the queue and eventually resolved.
+
+The triage person is responsible for monitoring the following places:
+
+- GitHub [issues](https://github.com/IntersectMBO/plutus/issues) and [PRs](https://github.com/IntersectMBO/plutus/pulls)
+- Plutus-related [CIPs](https://github.com/cardano-foundation/CIPs/pulls?q=is%3Apr+is%3Aopen+label%3A%22Category%3A+Plutus%22)
+- the [#plutus](https://input-output-rnd.slack.com/archives/C21UF2WVC) Slack channel
+- the [#plutus-working-group](https://discord.com/channels/1136727663583698984/1239888614796820531) Discord channel
 
 ## Why
 
 Before we start, why even bother with triage? It's another thing to learn and spend time on, why do we consider this a worthwhile effort investment? Here are a couple of reasons:
 
 - We care about our users. There isn't much point in developing something and then ignoring the feedback of people for whom you developed the product in the first place. Satisfaction of our users is the most important indicator that we do well, hence we always need to keep user experience in mind and work towards improving it, as otherwise people will go elsewhere.
-- There have been numerous times that our users not only reported important findings, but also fully investigated a potential issue and proposed a reasonable way forward (check out [#5135](https://github.com/input-output-hk/plutus/issues/5135) and [#5185](https://github.com/input-output-hk/plutus/issues/5185) for a couple of great examples). We don't want to miss out on those by not handling reported issues properly.
+- There have been numerous times that our users not only reported important findings, but also fully investigated a potential issue and proposed a reasonable way forward (check out [#5135](https://github.com/IntersectMBO/plutus/issues/5135) and [#5185](https://github.com/IntersectMBO/plutus/issues/5185) for a couple of great examples). We don't want to miss out on those by not handling reported issues properly.
 
 As for why we need a process -- it's simple: because otherwise we'd revert back to shortly glossing over an issue and moving on hoping it'll somehow resolve itself. This strategy wasn't working well and we would easily forget about an important report or even miss it completely in the past, hence we decided to create a dedicated process.
 
@@ -35,7 +42,7 @@ If the person serving the triage role reaches out to you, please provide all the
 
 The process described in this section and every section below is intended for the person serving the triage role (whether voluntarily or by duty). The process is meant to provide guidance and outline best practices -- not prescribe any rigid patterns that must be followed meticulously. Always use your best judgement and if something reasonable doesn't fit the process, consider amending the process.
 
-Remember to be nice and helpful to people you interact with: answer questions, provide additional context, explain why things are the way they are and how and why we're are going (not) to change them with regards to the given issue.
+Remember to be nice and helpful to people you interact with: answer questions, provide additional context, explain why things are the way they are and how and why we are going (not) to change them with regards to the given issue.
 
 In a lot of cases the participants are going to be disappointed with our product, since a place for reporting issues naturally skews towards negative feedback, and that disappointment may be very visible. Don't take it personally, chances are, there's indeed an annoying technical issue and the reporter has been struggling with it for a while before deciding to report it, which isn't a particularly entertaining thing to do either. Reporting issues can generally be a draining and thankless process and we don't want to hold up to this expectation. We want people reporting issues to feel welcome, even if they eagerly criticize our work.
 
@@ -144,5 +151,5 @@ is:issue is:open assignee:@me sort:updated-asc
 Issues that don't have an assignee and may require attention:
 
 ```
-is:issue is:open no:assignee -label:"Internal" -label:"Low priority" -label:"status: needs info from the reporter"
+is:issue is:open no:assignee -label:"Low priority" -label:"Internal" -label:"Objective" -label:"status: needs info from the reporter"
 ```

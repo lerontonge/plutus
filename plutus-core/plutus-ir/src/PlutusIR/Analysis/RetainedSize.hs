@@ -17,7 +17,7 @@ import PlutusIR.Core
 
 import PlutusCore qualified as PLC
 import PlutusCore.Builtin as PLC
-import PlutusCore.Name
+import PlutusCore.Name.Unique
 
 import Algebra.Graph qualified as C
 import Algebra.Graph.ToGraph
@@ -26,6 +26,9 @@ import Data.Graph.Dom (domTree)
 import Data.IntMap.Strict (IntMap)
 import Data.IntMap.Strict qualified as IntMap
 import Data.Tree
+import PlutusCore.Name.UniqueMap qualified as UMap
+import PlutusIR.Analysis.Builtins
+import PlutusIR.Analysis.VarInfo
 
 {- Note [Retained size analysis]
 WARNING: everything in this module assumes global uniqueness of variables.
@@ -138,23 +141,23 @@ depsRetentionMap sizeInfo = IntMap.fromList . flatten . annotateWithSizes sizeIn
 -- | Construct a 'UniqueMap' having size information for each individual part of a 'Binding'.
 bindingSize
     :: (HasUnique tyname TypeUnique, HasUnique name TermUnique)
-    => Binding tyname name uni fun ann -> UniqueMap Unique Size
+    => Binding tyname name uni fun ann -> PLC.UniqueMap Unique Size
 bindingSize (TermBind _ _ var term) =
-    insertByNameIndex var (varDeclSize var <> termSize term) mempty
+    UMap.insertByNameIndex var (varDeclSize var <> termSize term) mempty
 bindingSize (TypeBind _ tyVar ty) =
-    insertByNameIndex tyVar (tyVarDeclSize tyVar <> typeSize ty) mempty
+    UMap.insertByNameIndex tyVar (tyVarDeclSize tyVar <> typeSize ty) mempty
 bindingSize (DatatypeBind _ (Datatype _ dataDecl params matchName constrs))
-    = insertByNameIndex dataDecl (tyVarDeclSize dataDecl)
-    . flip (foldr $ \param -> insertByNameIndex param $ tyVarDeclSize param) params
-    . insertByNameIndex matchName (Size 1)
-    . flip (foldr $ \constr -> insertByNameIndex constr $ varDeclSize constr) constrs
+    = UMap.insertByNameIndex dataDecl (tyVarDeclSize dataDecl)
+    . flip (foldr $ \param -> UMap.insertByNameIndex param $ tyVarDeclSize param) params
+    . UMap.insertByNameIndex matchName (Size 1)
+    . flip (foldr $ \constr -> UMap.insertByNameIndex constr $ varDeclSize constr) constrs
     $ mempty
 
 -- | Construct a 'UniqueMap' having size information for each individual part of every 'Binding'
 -- in a term.
 bindingSizes
     :: (HasUnique tyname TypeUnique, HasUnique name TermUnique)
-    => Term tyname name uni fun ann -> UniqueMap Unique Size
+    => Term tyname name uni fun ann -> PLC.UniqueMap Unique Size
 bindingSizes (Let _ _ binds term) = foldMap bindingSize binds <> bindingSizes term
 bindingSizes term                 = term ^. termSubterms . to bindingSizes
 
@@ -163,7 +166,7 @@ toDirectionRetentionMap
     :: (HasUnique tyname TypeUnique, HasUnique name TermUnique)
     => Term tyname name uni fun ann -> DirectionRetentionMap
 toDirectionRetentionMap term =
-    DirectionRetentionMap . IntMap.insert rootInt rootSize . unUniqueMap $ bindingSizes term where
+    DirectionRetentionMap . IntMap.insert rootInt rootSize . PLC.unUniqueMap $ bindingSizes term where
         -- See Note [Handling the root].
         rootSize = Size (- 10 ^ (10::Int))
 
@@ -175,12 +178,13 @@ hasSizeIn (DirectionRetentionMap ss) (Variable (PLC.Unique i)) = i `IntMap.membe
 -- | Compute the retention map of a term.
 termRetentionMap
     :: (HasUnique tyname TypeUnique, HasUnique name TermUnique, ToBuiltinMeaning uni fun)
-    => PLC.BuiltinVersion fun
+    => BuiltinsInfo uni fun
+    -> VarsInfo tyname name uni ann
     -> Term tyname name uni fun ann
     -> IntMap Size
-termRetentionMap ver term = depsRetentionMap sizeInfo deps where
+termRetentionMap binfo vinfo term = depsRetentionMap sizeInfo deps where
     sizeInfo = toDirectionRetentionMap term
-    deps = C.induce (hasSizeIn sizeInfo) $ fst $ runTermDeps ver term
+    deps = C.induce (hasSizeIn sizeInfo) $ runTermDeps binfo vinfo term
 
 -- | Apply a function to the annotation of each part of every 'Binding' in a term.
 reannotateBindings
@@ -217,12 +221,13 @@ reannotateBindings f = goTerm where
 -- | Annotate each part of every 'Binding' in a term with the size that it retains.
 annotateWithRetainedSize
     :: (HasUnique name TermUnique, HasUnique tyname TypeUnique, ToBuiltinMeaning uni fun)
-    => PLC.BuiltinVersion fun
+    => BuiltinsInfo uni fun
     -> Term tyname name uni fun ann
     -> Term tyname name uni fun RetainedSize
 -- @reannotateBindings@ only processes annotations "associated with" a unique, so it can't change
 -- the type. Therefore we need to set all the bindings to an appropriate type beforehand.
-annotateWithRetainedSize ver term = reannotateBindings (upd . unUnique) $ NotARetainer <$ term where
-    retentionMap = termRetentionMap ver term
+annotateWithRetainedSize binfo term = reannotateBindings (upd . unUnique) $ NotARetainer <$ term where
+    retentionMap = termRetentionMap binfo vinfo term
+    vinfo = termVarInfo term
     -- If a binding is not in the retention map, then it's still a retainer, just retains zero size.
     upd i _ = Retains $ IntMap.findWithDefault (Size 0) i retentionMap

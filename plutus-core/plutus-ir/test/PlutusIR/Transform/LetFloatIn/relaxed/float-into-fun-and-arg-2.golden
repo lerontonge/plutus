@@ -1,0 +1,10 @@
+addInteger
+  ((let
+       !f : integer -> integer = \(y : integer) -> addInteger y 3
+     in
+     f)
+     (let
+       ~x : integer = addInteger 1 2
+     in
+     x))
+  1

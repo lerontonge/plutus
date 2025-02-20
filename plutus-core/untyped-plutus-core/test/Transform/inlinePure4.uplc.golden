@@ -1,9 +1,1 @@
-(lam
-  b_5
-  (force
-    [
-      (lam x_8 (delay (lam y_9 [ x_8 x_8 ])))
-      (delay [ (error) (con integer 1) ])
-    ]
-  )
-)
+\b -> (\x y -> x x) (delay (error 1))

@@ -20,13 +20,18 @@ module PlutusTx.Plugin (plugin, plc) where
 
 import Data.Bifunctor
 import PlutusPrelude
+import PlutusTx.Bool ((&&), (||))
+import PlutusTx.Builtins (mkNilOpaque, useFromOpaque, useToOpaque)
 import PlutusTx.Code
 import PlutusTx.Compiler.Builtins
 import PlutusTx.Compiler.Error
 import PlutusTx.Compiler.Expr
+import PlutusTx.Compiler.Trace
 import PlutusTx.Compiler.Types
 import PlutusTx.Compiler.Utils
 import PlutusTx.Coverage
+import PlutusTx.Function qualified
+import PlutusTx.Optimize.Inline qualified
 import PlutusTx.PIRTypes
 import PlutusTx.PLCTypes
 import PlutusTx.Plugin.Utils
@@ -49,6 +54,7 @@ import GHC.Types.TyThing qualified as GHC
 import GHC.Utils.Logger qualified as GHC
 
 import PlutusCore qualified as PLC
+import PlutusCore.Builtin qualified as PLC
 import PlutusCore.Compiler qualified as PLC
 import PlutusCore.Pretty as PLC
 import PlutusCore.Quote
@@ -68,6 +74,7 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Reader
+import Control.Monad.State
 import Control.Monad.Writer
 import Flat (Flat, flat, unflat)
 
@@ -75,10 +82,19 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Unsafe qualified as BSUnsafe
 import Data.Either.Validation
 import Data.Map qualified as Map
+import Data.Monoid.Extra (mwhen)
 import Data.Set qualified as Set
+import Data.Text qualified as Text
+import Data.Type.Bool qualified as PlutusTx.Bool
+import GHC.Num.Integer qualified
+import PlutusCore.Default (DefaultFun, DefaultUni)
+import PlutusIR.Analysis.Builtins
 import PlutusIR.Compiler.Provenance (noProvenance, original)
+import PlutusIR.Compiler.Types qualified as PIR
+import PlutusIR.Transform.RewriteRules
+import PlutusIR.Transform.RewriteRules.RemoveTrace (rewriteRuleRemoveTrace)
 import Prettyprinter qualified as PP
-import System.IO (openTempFile)
+import System.IO (openBinaryTempFile)
 import System.IO.Unsafe (unsafePerformIO)
 
 data PluginCtx = PluginCtx
@@ -169,7 +185,7 @@ Note also, this `sm_pre_inline` pass doesn't include some of the inlining GHC do
 plugin.
 The GHC desugarer generates a large number of intermediate definitions and general clutter that
 should be removed quickly. So GHC's "simple optimiser" (GHC.Core.SimpleOpt) also inlines things with
-single occurrences. This is why the NOINLINE pragma is needed to avoid inlining of bindings that
+single occurrences. This is why the OPAQUE pragma is needed to avoid inlining of bindings that
 have single occurrence.
 None of -fmax-simplifier-iterations=0  -fforce-recomp -O0 would prevent it,
 nor will turning off `sm_pre_inline`.
@@ -365,7 +381,7 @@ emitRuntimeError codeTy e = do
     let shown = show $ PP.pretty (pruneContext (_posContextLevel opts) e)
     tcName <- thNameToGhcNameOrFail ''CompiledCode
     tc <- lift . lift $ GHC.lookupTyCon tcName
-#if MIN_VERSION_ghc (9,6,0)
+#if MIN_VERSION_ghc(9,6,0)
     pure $ GHC.mkImpossibleExpr (GHC.mkTyConApp tc [codeTy]) shown
 #else
     pure $ GHC.mkRuntimeErrorApp GHC.rUNTIME_ERROR_ID (GHC.mkTyConApp tc [codeTy]) shown
@@ -384,7 +400,21 @@ compileMarkedExpr locStr codeTy origE = do
     let moduleNameStr =
             GHC.showSDocForUser flags GHC.emptyUnitState GHC.alwaysQualify (GHC.ppr moduleName)
     -- We need to do this out here, since it has to run in CoreM
-    nameInfo <- makePrimitiveNameInfo $ builtinNames ++ [''Bool, 'False, 'True, 'traceBool]
+    nameInfo <- makePrimitiveNameInfo $
+        builtinNames ++
+          [''Bool
+          , 'False
+          , 'True
+          , 'traceBool
+          , 'GHC.Num.Integer.integerNegate
+          , '(PlutusTx.Bool.&&)
+          , '(PlutusTx.Bool.||)
+          , 'PlutusTx.Function.fix
+          , 'PlutusTx.Optimize.Inline.inline
+          , 'useToOpaque
+          , 'useFromOpaque
+          , 'mkNilOpaque
+          ]
     modBreaks <- asks pcModuleModBreaks
     let coverage = CoverageOpts . Set.fromList $
                    [ l | _posCoverageAll opts, l <- [minBound .. maxBound]]
@@ -394,7 +424,8 @@ compileMarkedExpr locStr codeTy origE = do
             ccOpts = CompileOptions {
                 coProfile=_posProfile opts
                 ,coCoverage=coverage
-                ,coRemoveTrace=_posRemoveTrace opts},
+                ,coRemoveTrace=_posRemoveTrace opts
+                ,coInlineFix=_posInlineFix opts},
             ccFlags = flags,
             ccFamInstEnvs = famEnvs,
             ccNameInfo = nameInfo,
@@ -402,14 +433,17 @@ compileMarkedExpr locStr codeTy origE = do
             ccBlackholed = mempty,
             ccCurDef = Nothing,
             ccModBreaks = modBreaks,
-            ccBuiltinVer = def,
-            ccBuiltinCostModel = def
+            ccBuiltinsInfo = def,
+            ccBuiltinCostModel = def,
+            ccDebugTraceOn = _posDumpCompilationTrace opts,
+            ccRewriteRules = makeRewriteRules opts
             }
+        st = CompileState 0 mempty
     -- See Note [Occurrence analysis]
     let origE' = GHC.occurAnalyseExpr origE
 
-    ((pirP,uplcP), covIdx) <- runWriterT . runQuoteT . flip runReaderT ctx $
-        withContextM 1 (sdToTxt $ "Compiling expr at" GHC.<+> GHC.text locStr) $
+    ((pirP,uplcP), covIdx) <- runWriterT . runQuoteT . flip runReaderT ctx . flip evalStateT st $
+        traceCompilation 1 ("Compiling expr at" GHC.<+> GHC.text locStr) $
             runCompiler moduleNameStr opts origE'
 
     -- serialize the PIR, PLC, and coverageindex outputs into a bytestring.
@@ -434,6 +468,7 @@ runCompiler ::
     ( uni ~ PLC.DefaultUni
     , fun ~ PLC.DefaultFun
     , MonadReader (CompileContext uni fun) m
+    , MonadState CompileState m
     , MonadWriter CoverageIndex m
     , MonadQuote m
     , MonadError (CompileError uni fun Ann) m
@@ -460,13 +495,15 @@ runCompiler moduleName opts expr = do
             PIR.DatatypeComponent PIR.Destructor _ -> True
             _                                      ->
                 AlwaysInline `elem` fmap annInline (toList ann)
+
+    rewriteRules <- asks ccRewriteRules
+
     -- Compilation configuration
-    let pirTcConfig = if _posDoTypecheck opts
-                      -- pir's tc-config is based on plc tcconfig
-                      then Just $ PIR.PirTCConfig plcTcConfig PIR.YesEscape
-                      else Nothing
+    -- pir's tc-config is based on plc tcconfig
+    let pirTcConfig = PIR.PirTCConfig plcTcConfig PIR.YesEscape
         pirCtx = PIR.toDefaultCompilationCtx plcTcConfig
                  & set (PIR.ccOpts . PIR.coOptimize) (opts ^. posOptimize)
+                 & set (PIR.ccOpts . PIR.coTypecheck) (opts ^. posDoTypecheck)
                  & set (PIR.ccOpts . PIR.coPedantic) (opts ^. posPedantic)
                  & set (PIR.ccOpts . PIR.coVerbose) (opts ^. posVerbosity == Verbose)
                  & set (PIR.ccOpts . PIR.coDebug) (opts ^. posVerbosity == Debug)
@@ -482,8 +519,18 @@ runCompiler moduleName opts expr = do
                     (opts ^. posDoSimplifierInline)
                  & set (PIR.ccOpts . PIR.coDoSimplifierEvaluateBuiltins)
                     (opts ^. posDoSimplifierEvaluateBuiltins)
+                 & set (PIR.ccOpts . PIR.coDoSimplifierStrictifyBindings)
+                    (opts ^. posDoSimplifierStrictifyBindings)
+                 & set (PIR.ccOpts . PIR.coDoSimplifierRemoveDeadBindings)
+                    (opts ^. posDoSimplifierRemoveDeadBindings)
+                 & set (PIR.ccOpts . PIR.coInlineConstants)
+                    (opts ^. posInlineConstants)
+                 & set (PIR.ccOpts . PIR.coInlineFix)
+                    (opts ^. posInlineFix)
                  & set (PIR.ccOpts . PIR.coInlineHints)                    hints
                  & set (PIR.ccOpts . PIR.coRelaxedFloatin) (opts ^. posRelaxedFloatin)
+                 & set (PIR.ccOpts . PIR.coCaseOfCaseConservative)
+                    (opts ^. posCaseOfCaseConservative)
                  & set (PIR.ccOpts . PIR.coPreserveLogging) (opts ^. posPreserveLogging)
                  -- We could make this configurable with an option, but:
                  -- 1. The only other choice you can make is new version + Scott encoding, and
@@ -493,28 +540,35 @@ runCompiler moduleName opts expr = do
                     (if plcVersion < PLC.plcVersion110
                         then PIR.ScottEncoding else PIR.SumsOfProducts)
                  -- TODO: ensure the same as the one used in the plugin
-                 & set PIR.ccBuiltinVer def
+                 & set PIR.ccBuiltinsInfo def
                  & set PIR.ccBuiltinCostModel def
+                 & set PIR.ccRewriteRules rewriteRules
         plcOpts = PLC.defaultCompilationOpts
             & set (PLC.coSimplifyOpts . UPLC.soMaxSimplifierIterations)
                 (opts ^. posMaxSimplifierIterationsUPlc)
+            & set (PLC.coSimplifyOpts . UPLC.soMaxCseIterations)
+                (opts ^. posMaxCseIterations)
+            & set (PLC.coSimplifyOpts . UPLC.soConservativeOpts)
+                (opts ^. posConservativeOpts)
             & set (PLC.coSimplifyOpts . UPLC.soInlineHints) hints
+            & set (PLC.coSimplifyOpts . UPLC.soInlineConstants)
+                (opts ^. posInlineConstants)
 
     -- GHC.Core -> Pir translation.
     pirT <- original <$> (PIR.runDefT annMayInline $ compileExprWithDefs expr)
     let pirP = PIR.Program noProvenance plcVersion pirT
     when (opts ^. posDumpPir) . liftIO $
-        dumpFlat (void pirP) "initial PIR program" (moduleName ++ ".pir-initial.flat")
+        dumpFlat (void pirP) "initial PIR program" (moduleName ++ "_initial.pir-flat")
 
     -- Pir -> (Simplified) Pir pass. We can then dump/store a more legible PIR program.
     spirP <- flip runReaderT pirCtx $ PIR.compileToReadable pirP
     when (opts ^. posDumpPir) . liftIO $
-        dumpFlat (void spirP) "simplified PIR program" (moduleName ++ ".pir-simplified.flat")
+        dumpFlat (void spirP) "simplified PIR program" (moduleName ++ "_simplified.pir-flat")
 
     -- (Simplified) Pir -> Plc translation.
     plcP <- flip runReaderT pirCtx $ PIR.compileReadableToPlc spirP
     when (opts ^. posDumpPlc) . liftIO $
-        dumpFlat (void plcP) "typed PLC program" (moduleName ++ ".plc.flat")
+        dumpFlat (void plcP) "typed PLC program" (moduleName ++ ".tplc-flat")
 
     -- We do this after dumping the programs so that if we fail typechecking we still get the dump.
     when (opts ^. posDoTypecheck) . void $
@@ -526,7 +580,7 @@ runCompiler moduleName opts expr = do
         dumpFlat
             (UPLC.UnrestrictedProgram $ void dbP)
             "untyped PLC program"
-            (moduleName ++ ".uplc.flat")
+            (moduleName ++ ".uplc-flat")
     -- Discard the Provenance information at this point, just keep the SrcSpans
     -- TODO: keep it and do something useful with it
     pure (fmap getSrcSpans spirP, fmap getSrcSpans dbP)
@@ -542,7 +596,7 @@ runCompiler moduleName opts expr = do
 
       dumpFlat :: Flat t => t -> String -> String -> IO ()
       dumpFlat t desc fileName = do
-        (tPath, tHandle) <- openTempFile "." fileName
+        (tPath, tHandle) <- openBinaryTempFile "." fileName
         putStrLn $ "!!! dumping " ++ desc ++ " to " ++ show tPath
         BS.hPut tHandle $ flat t
 
@@ -607,3 +661,10 @@ makePrimitiveNameInfo names = do
         thing <- lift . lift $ GHC.lookupThing ghcName
         pure (name, thing)
     pure $ Map.fromList infos
+
+makeRewriteRules :: PluginOptions -> RewriteRules DefaultUni DefaultFun
+makeRewriteRules options =
+  fold
+    [ mwhen (options ^. posRemoveTrace) rewriteRuleRemoveTrace
+    , defaultUniRewriteRules
+    ]

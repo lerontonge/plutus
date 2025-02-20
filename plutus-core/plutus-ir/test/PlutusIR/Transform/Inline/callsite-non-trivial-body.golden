@@ -1,0 +1,14 @@
+let
+  !f :
+     (integer -> integer) ->
+     (integer -> integer -> integer) ->
+     integer ->
+     integer
+    = \(unused : integer -> integer)
+       (a : integer -> integer -> integer)
+       (b : integer) ->
+        a b (addInteger (addInteger (addInteger 1 2) 3) 4)
+in
+addInteger
+  (f (\(unused : integer) -> 5) addInteger 6)
+  (addInteger 11 (addInteger (addInteger (addInteger 1 2) 3) 4))

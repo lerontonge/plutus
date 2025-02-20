@@ -1,6 +1,8 @@
 -- editorconfig-checker-disable-file
 {-# LANGUAGE DataKinds            #-}
+{-# LANGUAGE EmptyCase            #-}
 {-# LANGUAGE KindSignatures       #-}
+{-# LANGUAGE LambdaCase           #-}
 {-# LANGUAGE OverloadedStrings    #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
 {-# LANGUAGE TypeApplications     #-}
@@ -9,10 +11,8 @@
 {-# OPTIONS_GHC -fno-omit-interface-pragmas #-}
 module PlutusTx.IsData.Class where
 
-import Prelude qualified as Haskell (Either (..), Int, error)
+import Prelude qualified as Haskell (Int, error)
 
-import PlutusCore.Crypto.BLS12_381.G1 qualified as BLS12_381.G1
-import PlutusCore.Crypto.BLS12_381.G2 qualified as BLS12_381.G2
 import PlutusCore.Data qualified as PLC
 import PlutusTx.Base
 import PlutusTx.Builtins as Builtins
@@ -77,7 +77,8 @@ instance ToData Integer where
     toBuiltinData i = mkI i
 instance FromData Integer where
     {-# INLINABLE fromBuiltinData #-}
-    fromBuiltinData d = matchData' d (\_ _ -> Nothing) (const Nothing) (const Nothing) (\i -> Just i) (const Nothing)
+    fromBuiltinData =
+        caseData' (\_ _ -> Nothing) (\_ -> Nothing) (\_ -> Nothing) Just (\_ -> Nothing)
 instance UnsafeFromData Integer where
     {-# INLINABLE unsafeFromBuiltinData #-}
     unsafeFromBuiltinData = BI.unsafeDataAsI
@@ -87,7 +88,8 @@ instance ToData Builtins.BuiltinByteString where
     toBuiltinData = mkB
 instance FromData Builtins.BuiltinByteString where
     {-# INLINABLE fromBuiltinData #-}
-    fromBuiltinData d = matchData' d (\_ _ -> Nothing) (const Nothing) (const Nothing) (const Nothing) (\b -> Just b)
+    fromBuiltinData =
+        caseData' (\_ _ -> Nothing) (\_ -> Nothing) (\_ -> Nothing) (\_ -> Nothing) Just
 instance UnsafeFromData Builtins.BuiltinByteString where
     {-# INLINABLE unsafeFromBuiltinData #-}
     unsafeFromBuiltinData = BI.unsafeDataAsB
@@ -101,25 +103,24 @@ instance ToData a => ToData [a] where
           mapToBuiltin = go
             where
                 go :: [a] -> BI.BuiltinList BI.BuiltinData
-                go []     = BI.mkNilData BI.unitval
+                go []     = mkNil
                 go (x:xs) = BI.mkCons (toBuiltinData x) (go xs)
 instance FromData a => FromData [a] where
     {-# INLINABLE fromBuiltinData #-}
-    fromBuiltinData d =
-        matchData'
-        d
+    fromBuiltinData =
+        caseData'
         (\_ _ -> Nothing)
-        (const Nothing)
+        (\_ -> Nothing)
         traverseFromBuiltin
-        (const Nothing)
-        (const Nothing)
+        (\_ -> Nothing)
+        (\_ -> Nothing)
         where
           {-# INLINE traverseFromBuiltin #-}
           traverseFromBuiltin :: BI.BuiltinList BI.BuiltinData -> Maybe [a]
           traverseFromBuiltin = go
             where
                 go :: BI.BuiltinList BI.BuiltinData -> Maybe [a]
-                go l = BI.chooseList l (const (pure [])) (\_ -> liftA2 (:) (fromBuiltinData (BI.head l)) (go (BI.tail l))) ()
+                go = caseList' (pure []) (\x xs -> liftA2 (:) (fromBuiltinData x) (go xs))
 instance UnsafeFromData a => UnsafeFromData [a] where
     {-# INLINABLE unsafeFromBuiltinData #-}
     unsafeFromBuiltinData d = mapFromBuiltin (BI.unsafeDataAsList d)
@@ -129,11 +130,11 @@ instance UnsafeFromData a => UnsafeFromData [a] where
           mapFromBuiltin = go
             where
                 go :: BI.BuiltinList BI.BuiltinData -> [a]
-                go l = BI.chooseList l (const []) (\_ -> unsafeFromBuiltinData (BI.head l) : go (BI.tail l)) ()
+                go = caseList' [] (\x xs -> unsafeFromBuiltinData x : go xs)
 
 instance ToData Void where
     {-# INLINABLE toBuiltinData #-}
-    toBuiltinData v = absurd v
+    toBuiltinData = \case {}
 instance FromData Void where
     {-# INLINABLE fromBuiltinData #-}
     fromBuiltinData _ = Nothing
@@ -157,10 +158,7 @@ instance FromData Builtins.BuiltinBLS12_381_G1_Element where
     fromBuiltinData d =
         case fromBuiltinData d of
           Nothing -> Nothing
-          Just (BI.BuiltinByteString bs) ->
-              case BLS12_381.G1.uncompress bs of
-                Haskell.Left _  -> Nothing
-                Haskell.Right g -> Just $ toBuiltin g
+          Just bs -> Just $ bls12_381_G1_uncompress bs
 instance UnsafeFromData Builtins.BuiltinBLS12_381_G1_Element where
     {-# INLINABLE unsafeFromBuiltinData #-}
     unsafeFromBuiltinData = Builtins.bls12_381_G1_uncompress . unsafeFromBuiltinData
@@ -173,10 +171,7 @@ instance FromData Builtins.BuiltinBLS12_381_G2_Element where
     fromBuiltinData d =
         case fromBuiltinData d of
           Nothing -> Nothing
-          Just (BI.BuiltinByteString bs) ->
-              case BLS12_381.G2.uncompress bs of
-                Haskell.Left _  -> Nothing
-                Haskell.Right g -> Just $ toBuiltin g
+          Just bs -> Just $ bls12_381_G2_uncompress bs
 instance UnsafeFromData Builtins.BuiltinBLS12_381_G2_Element where
     {-# INLINABLE unsafeFromBuiltinData #-}
     unsafeFromBuiltinData = Builtins.bls12_381_G2_uncompress . unsafeFromBuiltinData
@@ -203,3 +198,7 @@ toData a = builtinDataToData (toBuiltinData a)
 -- | Convert a value from 'PLC.Data', returning 'Nothing' if this fails.
 fromData :: (FromData a) => PLC.Data -> Maybe a
 fromData d = fromBuiltinData (BuiltinData d)
+
+-- | Convert a value from 'PLC.Data', throwing if this fails.
+unsafeFromData :: (UnsafeFromData a) => PLC.Data -> a
+unsafeFromData d = unsafeFromBuiltinData (BuiltinData d)

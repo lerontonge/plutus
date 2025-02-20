@@ -9,6 +9,7 @@
 {-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:defer-errors #-}
 {-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:max-simplifier-iterations-pir=0 #-}
 {-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:max-simplifier-iterations-uplc=0 #-}
+{-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:max-cse-iterations=0 #-}
 {-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:context-level=0 #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
@@ -16,10 +17,10 @@ module Plugin.Errors.Spec where
 
 import Test.Tasty.Extras
 
-import PlutusCore.Test
+import PlutusCore.Test (goldenUPlc)
 import PlutusTx.Builtins qualified as Builtins
-import PlutusTx.Code
-import PlutusTx.Plugin
+import PlutusTx.Code (CompiledCode)
+import PlutusTx.Plugin.Utils (plc)
 import PlutusTx.Test ()
 
 import Data.Proxy
@@ -33,18 +34,24 @@ import GHC.Num.Integer
 {- HLINT ignore -}
 
 errors :: TestNested
-errors = testNested "Errors" [
-    goldenUPlcCatch "machInt" machInt
-    -- FIXME: This fails differently in nix, possibly due to slightly different optimization settings
-    -- , goldenPlcCatch "negativeInt" negativeInt
-    , goldenUPlcCatch "caseInt" caseInt
-    , goldenUPlcCatch "stringLiteral" stringLiteral
-    , goldenUPlcCatch "recursiveNewtype" recursiveNewtype
-    , goldenUPlcCatch "mutualRecursionUnfoldingsLocal" mutualRecursionUnfoldingsLocal
-    , goldenUPlcCatch "literalCaseInt" literalCaseInt
-    , goldenUPlcCatch "literalCaseBs" literalCaseBs
-    , goldenUPlcCatch "literalAppendBs" literalAppendBs
-    , goldenUPlcCatch "literalCaseOther" literalCaseOther
+errors = testNested "Errors" . pure $ testNestedGhc
+  [ goldenUPlc "machInt" machInt
+  -- FIXME: This fails differently in nix, possibly due to slightly different optimization settings
+  -- , goldenPlc "negativeInt" negativeInt
+  , goldenUPlc "caseInt" caseInt
+  , goldenUPlc "stringLiteral" stringLiteral
+  , goldenUPlc "recursiveNewtype" recursiveNewtype
+  , goldenUPlc "mutualRecursionUnfoldingsLocal" mutualRecursionUnfoldingsLocal
+  , goldenUPlc "literalCaseInt" literalCaseInt
+  , goldenUPlc "literalCaseBs" literalCaseBs
+  , goldenUPlc "literalAppendBs" literalAppendBs
+  , goldenUPlc "literalCaseOther" literalCaseOther
+  , goldenUPlc "rangeEnumFromTo" rangeEnumFromTo
+  , goldenUPlc "rangeEnumFromThenTo" rangeEnumFromThenTo
+  , goldenUPlc "rangeEnumFrom" rangeEnumFrom
+  , goldenUPlc "rangeEnumFromThen" rangeEnumFromThen
+  , goldenUPlc "toBuiltinUsed" toBuiltinUsed
+  , goldenUPlc "fromBuiltinUsed" fromBuiltinUsed
   ]
 
 machInt :: CompiledCode Int
@@ -64,13 +71,13 @@ newtype RecursiveNewtype = RecursiveNewtype [RecursiveNewtype]
 recursiveNewtype :: CompiledCode (RecursiveNewtype)
 recursiveNewtype = plc (Proxy @"recursiveNewtype") (RecursiveNewtype [])
 
-{-# INLINABLE evenDirectLocal #-}
 evenDirectLocal :: Integer -> Bool
 evenDirectLocal n = if Builtins.equalsInteger n 0 then True else oddDirectLocal (Builtins.subtractInteger n 1)
+{-# INLINABLE evenDirectLocal #-}
 
-{-# INLINABLE oddDirectLocal #-}
 oddDirectLocal :: Integer -> Bool
 oddDirectLocal n = if Builtins.equalsInteger n 0 then False else evenDirectLocal (Builtins.subtractInteger n 1)
+{-# INLINABLE oddDirectLocal #-}
 
 -- FIXME: these seem to only get unfoldings when they're in a separate module, even with the simplifier pass
 mutualRecursionUnfoldingsLocal :: CompiledCode Bool
@@ -95,3 +102,23 @@ instance Eq AType where
 
 literalCaseOther :: CompiledCode (AType -> AType)
 literalCaseOther = plc (Proxy @"literalCaseOther") (\x -> case x of { "abc" -> ""; x -> x})
+
+-- Tests for literal ranges (and the corresponding methods in GHC.Enum). These
+-- should all fail with informative error messages.
+rangeEnumFromTo :: CompiledCode [Integer]
+rangeEnumFromTo = plc (Proxy @"rangeEnumFromTo") [1..50]
+
+rangeEnumFromThenTo :: CompiledCode [Integer]
+rangeEnumFromThenTo = plc (Proxy @"rangeEnumFromThenTo") [1,7..50]
+
+rangeEnumFrom :: CompiledCode [Integer]
+rangeEnumFrom = plc (Proxy @"rangeEnumFrom") [1..]
+
+rangeEnumFromThen :: CompiledCode [Integer]
+rangeEnumFromThen = plc (Proxy @"rangeEnumFromThen") [1,5..]
+
+toBuiltinUsed :: CompiledCode (Integer -> Integer)
+toBuiltinUsed = plc (Proxy @"toBuiltinUsed") Builtins.toBuiltin
+
+fromBuiltinUsed :: CompiledCode (Integer -> Integer)
+fromBuiltinUsed = plc (Proxy @"fromBuiltinUsed") Builtins.fromBuiltin

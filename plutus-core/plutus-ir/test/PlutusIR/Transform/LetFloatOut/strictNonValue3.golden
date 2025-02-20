@@ -1,0 +1,5 @@
+\(x : integer) ->
+  let
+    ~i : integer = let !j : integer = (\(x : integer) -> x) 1 in addInteger j x
+  in
+  i

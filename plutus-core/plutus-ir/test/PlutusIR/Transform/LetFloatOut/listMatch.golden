@@ -1,0 +1,15 @@
+\(x : integer) ->
+  letrec
+    data (List :: * -> *) a | match_List where
+      Nil : List a
+      Cons : a -> List a -> List a
+  in
+  let
+    !j : integer = addInteger 3 x
+  in
+  match_List
+    {all a. a -> a}
+    (Nil {all a. a -> a})
+    {all a. a -> a}
+    (/\a -> \(x : a) -> x)
+    (\(h : all a. a -> a) (t : List (all a. a -> a)) -> h)

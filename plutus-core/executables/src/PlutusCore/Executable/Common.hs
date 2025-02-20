@@ -14,10 +14,8 @@ module PlutusCore.Executable.Common
     , getInput
     , getInteresting
     , getPlcExamples
-    , getPrintMethod
+    , prettyPrintByMode
     , getUplcExamples
-    , handleEResult
-    , handleTimingResults
     , helpText
     , loadASTfromFlat
     , parseInput
@@ -29,12 +27,11 @@ module PlutusCore.Executable.Common
     , runPrint
     , runPrintBuiltinSignatures
     , runPrintExample
-    , timeEval
     , topSrcSpan
     , writeFlat
-    , writePrettyToFileOrStd
+    , writePrettyToOutput
     , writeProgram
-    , writeToFileOrStd
+    , writeToOutput
     ) where
 
 import PlutusPrelude
@@ -71,14 +68,12 @@ import PlutusIR.Check.Uniques as PIR (checkProgram)
 import PlutusIR.Core.Instance.Pretty ()
 import PlutusIR.Parser qualified as PIR (parse, program)
 
-import Control.DeepSeq (rnf)
 import Control.Monad.Except
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as BSL
-import Data.Foldable (traverse_)
 import Data.HashMap.Monoidal qualified as H
 import Data.Kind (Type)
-import Data.List (intercalate, nub)
+import Data.List (intercalate)
 import Data.List qualified as List
 import Data.Maybe (fromJust)
 import Data.Proxy (Proxy (..))
@@ -89,9 +84,6 @@ import Flat (Flat)
 import GHC.TypeLits (symbolVal)
 import Prettyprinter ((<+>))
 
-import System.CPUTime (getCPUTime)
-import System.Exit (exitFailure, exitSuccess)
-import System.Mem (performGC)
 import Text.Megaparsec (errorBundlePretty)
 import Text.Printf (printf)
 
@@ -143,6 +135,15 @@ instance ProgramLike UplcProg where
 
 ---------------- Printing budgets and costs ----------------
 
+-- Convert a time in picoseconds into a readable format with appropriate units
+formatTimePicoseconds :: Double -> String
+formatTimePicoseconds t
+    | t >= 1e12 = printf "%.3f s" (t / 1e12)
+    | t >= 1e9 = printf "%.3f ms" (t / 1e9)
+    | t >= 1e6 = printf "%.3f μs" (t / 1e6)
+    | t >= 1e3 = printf "%.3f ns" (t / 1e3)
+    | otherwise = printf "%f ps" t
+
 printBudgetStateBudget :: CekModel -> ExBudget -> IO ()
 printBudgetStateBudget model b =
     case model of
@@ -179,7 +180,7 @@ printBudgetStateTally term model (Cek.CekExTally costs) = do
                 putStrLn ""
                 putStrLn $ "Total builtin costs:   " ++ budgetToString totalBuiltinCosts
                 printf "Time spent executing builtins:  %4.2f%%\n"
-                        (100 * (getCPU totalBuiltinCosts) / (getCPU totalCost))
+                        (100 * getCPU totalBuiltinCosts / getCPU totalCost)
                 putStrLn ""
                 putStrLn $ "Total budget spent:    " ++ printf (budgetToString totalCost)
                 putStrLn $ "Predicted execution time: "
@@ -313,8 +314,9 @@ topSrcSpan = PLC.SrcSpan "top" 1 1 1 2
 writeFlat ::
     (ProgramLike p, Functor p) => Output -> AstNameType -> p ann -> IO ()
 writeFlat outp flatMode prog = do
-    -- Change annotations to (): see Note [Annotation types].
-    let flatProg = serialiseProgramFlat flatMode (() <$ prog)
+    -- ASTs are always serialised with unit annotations to save space: `flat`
+    -- does not need any space to serialise ().
+    let flatProg = serialiseProgramFlat flatMode (void prog)
     case outp of
         FileOutput file -> BSL.writeFile file flatProg
         StdOutput       -> BSL.putStr flatProg
@@ -322,13 +324,13 @@ writeFlat outp flatMode prog = do
 
 ---------------- Write an AST as PLC source ----------------
 
-getPrintMethod ::
-    PP.PrettyPlc a => PrintMode -> (a -> Doc ann)
-getPrintMethod = \case
-    Classic       -> PP.prettyPlcClassicDef
-    Debug         -> PP.prettyPlcClassicDebug
-    Readable      -> PP.prettyPlcReadableDef
-    ReadableDebug -> PP.prettyPlcReadableDebug
+prettyPrintByMode ::
+    PP.PrettyPlc a => PrintMode -> (a -> Doc a)
+prettyPrintByMode = \case
+  Classic        -> PP.prettyPlcClassic
+  Simple         -> PP.prettyPlcClassicSimple
+  Readable       -> PP.prettyPlcReadable
+  ReadableSimple -> PP.prettyPlcReadableSimple
 
 writeProgram ::
     ( ProgramLike p
@@ -340,24 +342,24 @@ writeProgram ::
     PrintMode ->
     p ann ->
     IO ()
-writeProgram outp Textual mode prog      = writePrettyToFileOrStd outp mode prog
+writeProgram outp Textual mode prog      = writePrettyToOutput outp mode prog
 writeProgram outp (Flat flatMode) _ prog = writeFlat outp flatMode prog
 
-writePrettyToFileOrStd ::
+writePrettyToOutput ::
     (PP.PrettyBy PP.PrettyConfigPlc (p ann)) => Output -> PrintMode -> p ann -> IO ()
-writePrettyToFileOrStd outp mode prog = do
-    let printMethod = getPrintMethod mode
+writePrettyToOutput outp mode prog = do
+    let printMethod = prettyPrintByMode mode
     case outp of
         FileOutput file -> writeFile file . Prelude.show . printMethod $ prog
         StdOutput       -> print . printMethod $ prog
         NoOutput        -> pure ()
 
-writeToFileOrStd ::
-    Output -> String -> IO ()
-writeToFileOrStd outp v = do
+writeToOutput ::
+    Show a => Output -> a -> IO ()
+writeToOutput outp v = do
     case outp of
-        FileOutput file -> writeFile file v
-        StdOutput       -> putStrLn v
+        FileOutput file -> writeFile file $ show v
+        StdOutput       -> putStrLn $ show v
         NoOutput        -> pure ()
 
 ---------------- Examples ----------------
@@ -378,20 +380,20 @@ data SomeExample = SomeTypedExample SomeTypedExample | SomeUntypedExample SomeUn
 
 prettySignature :: ExampleName -> SomeExample -> Doc ann
 prettySignature name (SomeTypedExample (SomeTypeExample (TypeExample kind _))) =
-    pretty name <+> "::" <+> PP.prettyPlcDef kind
+    pretty name <+> "::" <+> PP.prettyPlc kind
 prettySignature name (SomeTypedExample (SomeTypedTermExample (TypedTermExample ty _))) =
-    pretty name <+> ":" <+> PP.prettyPlcDef ty
+    pretty name <+> ":" <+> PP.prettyPlc ty
 prettySignature name (SomeUntypedExample _) =
     pretty name
 
 prettyExample :: SomeExample -> Doc ann
 prettyExample =
     \case
-        SomeTypedExample (SomeTypeExample (TypeExample _ ty)) -> PP.prettyPlcDef ty
+        SomeTypedExample (SomeTypeExample (TypeExample _ ty)) -> PP.prettyPlc ty
         SomeTypedExample (SomeTypedTermExample (TypedTermExample _ term)) ->
-            PP.prettyPlcDef $ PLC.Program () PLC.latestVersion term
+            PP.prettyPlc $ PLC.Program () PLC.latestVersion term
         SomeUntypedExample (SomeUntypedTermExample (UntypedTermExample term)) ->
-            PP.prettyPlcDef $ UPLC.Program () PLC.latestVersion term
+            PP.prettyPlc $ UPLC.Program () PLC.latestVersion term
 
 toTypedTermExample ::
     PLC.Term PLC.TyName PLC.Name PLC.DefaultUni PLC.DefaultFun () -> TypedTermExample
@@ -403,7 +405,7 @@ toTypedTermExample term = TypedTermExample ty term
         PLC.inferTypeOfProgram tcConfig program
     ty = case errOrTy of
         Left (err :: PLC.Error PLC.DefaultUni PLC.DefaultFun ()) ->
-            error $ PP.displayPlcDef err
+            error $ PP.displayPlc err
         Right vTy -> PLC.unNormalized vTy
 
 getInteresting :: IO [(ExampleName, PLC.Term PLC.TyName PLC.Name PLC.DefaultUni PLC.DefaultFun ())]
@@ -464,58 +466,6 @@ getUplcExamples =
 -- is requested and at each lookup of a particular example. I.e. each time we generate distinct
 -- terms. But types of those terms must not change across requests, so we're safe.
 
----------------- Timing ----------------
-
--- Convert a time in picoseconds into a readable format with appropriate units
-formatTimePicoseconds :: Double -> String
-formatTimePicoseconds t
-    | t >= 1e12 = printf "%.3f s" (t / 1e12)
-    | t >= 1e9 = printf "%.3f ms" (t / 1e9)
-    | t >= 1e6 = printf "%.3f μs" (t / 1e6)
-    | t >= 1e3 = printf "%.3f ns" (t / 1e3)
-    | otherwise = printf "%f ps" t
-
-{- | Apply an evaluator to a program a number of times and report the mean execution
-time.  The first measurement is often significantly larger than the rest
-(perhaps due to warm-up effects), and this can distort the mean.  To avoid this
-we measure the evaluation time (n+1) times and discard the first result.
--}
-timeEval :: NFData a => Integer -> (t -> a) -> t -> IO [a]
-timeEval n evaluate prog
-    | n <= 0 = error "Error: the number of repetitions should be at least 1"
-    | otherwise = do
-        (results, times) <-
-            unzip . tail <$> for (replicate (fromIntegral (n + 1)) prog) (timeOnce evaluate)
-        let mean = fromIntegral (sum times) / fromIntegral n :: Double
-            runs :: String = if n == 1 then "run" else "runs"
-        printf "Mean evaluation time (%d %s): %s\n" n runs (formatTimePicoseconds mean)
-        pure results
-  where
-    timeOnce eval prg = do
-        start <- performGC >> getCPUTime
-        let result = eval prg
-            !_ = rnf result
-        end <- getCPUTime
-        pure (result, end - start)
-
------------- Aux functions for @runEval@ ------------------
-
-handleEResult ::
-    (PP.PrettyBy PP.PrettyConfigPlc a1, Show a2) =>
-    PrintMode ->
-    Either a2 a1 ->
-    IO b
-handleEResult printMode result =
-    case result of
-        Right v  -> print (getPrintMethod printMode v) >> exitSuccess
-        Left err -> print err *> exitFailure
-handleTimingResults :: (Eq a1, Eq b, Show a1) => p -> [Either a1 b] -> IO a2
-handleTimingResults _ results =
-    case nub results of
-        [Right _]  -> exitSuccess -- We don't want to see the result here
-        [Left err] -> print err >> exitFailure
-        -- Should never happen
-        _          -> error "Timing evaluations returned inconsistent results"
 
 ----------------- Print examples -----------------------
 
@@ -534,9 +484,9 @@ runPrintExample getFn (ExampleOptions (ExampleSingle name)) = do
 
 ---------------- Print the cost model parameters ----------------
 
-runDumpModel :: IO ()
-runDumpModel = do
-    let params = fromJust PLC.defaultCostModelParams
+runDumpModel :: PLC.BuiltinSemanticsVariant PLC.DefaultFun -> IO ()
+runDumpModel semvar = do
+    let params = fromJust $ PLC.defaultCostModelParamsForVariant semvar
     BSL.putStr $ Aeson.encode params
 
 ---------------- Print the type signatures of the default builtins ----------------
@@ -560,7 +510,10 @@ instance Show Signature where
             case ty of
                 PLC.TyBuiltin _ t -> show $ PP.pretty t
                 PLC.TyApp{}       -> showMultiTyApp $ unwrapTyApp ty
-                _                 -> show $ PP.pretty ty
+                -- prettyPlcClassicSimple -> omit indices in type variables.
+                _                 -> show $ PP.prettyPlcClassicSimple ty
+                -- We may want more cases here if more complex types (eg function types)
+                -- are allowed for builtin arguments.
         unwrapTyApp ty =
             case ty of
                 PLC.TyApp _ t1 t2 -> unwrapTyApp t1 ++ [t2]
@@ -593,8 +546,9 @@ runPrintBuiltinSignatures = do
       (\x -> putStr (printf "%-35s: %s\n" (show $ PP.pretty x) (show $ getSignature x)))
       builtins
   where
-    getSignature (PLC.toBuiltinMeaning @_ @_ @(PlcTerm ()) def -> PLC.BuiltinMeaning sch _ _) =
-        typeSchemeToSignature sch
+    getSignature b =
+      case PLC.toBuiltinMeaning @PLC.DefaultUni @PLC.DefaultFun @(PlcTerm ()) def b of
+        PLC.BuiltinMeaning sch _ _ -> typeSchemeToSignature sch
 
 ---------------- Parse and print a PLC/UPLC source file ----------------
 
@@ -608,7 +562,7 @@ runPrint
     -> IO ()
 runPrint (PrintOptions inp outp mode) = do
     parsed <- (snd <$> parseInput inp :: IO (p PLC.SrcSpan))
-    let printed = show $ getPrintMethod mode parsed
+    let printed = show $ prettyPrintByMode mode parsed
     case outp of
         FileOutput path -> writeFile path printed
         StdOutput       -> putStrLn printed

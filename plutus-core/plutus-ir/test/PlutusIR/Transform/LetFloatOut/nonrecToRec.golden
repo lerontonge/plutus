@@ -1,0 +1,5 @@
+letrec
+  ~r : integer = i
+  ~i : integer = let !j : integer = r in j
+in
+3

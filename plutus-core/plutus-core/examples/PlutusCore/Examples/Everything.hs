@@ -18,10 +18,12 @@ import PlutusCore.Default
 import PlutusCore.FsTree
 import PlutusCore.MkPlc
 
+import PlutusCore.StdLib.Data.MatchOption
 import PlutusCore.StdLib.Type
 
 import PlutusCore.Examples.Builtins
 import PlutusCore.Examples.Data.Data
+import PlutusCore.Examples.Data.Function
 import PlutusCore.Examples.Data.InterList
 import PlutusCore.Examples.Data.List
 import PlutusCore.Examples.Data.Pair
@@ -35,8 +37,12 @@ examples =
     FolderContents
       [ treeFolderContents "Examples"
           [ treeFolderContents "Data"
-              [ plcTermFile "ofoldrData" ofoldrData
+              [ plcTermFile "ofoldrData" $ ofoldrData UseCase
+              , plcTermFile "ofoldrDataViaChoose" $ ofoldrData UseChoose
               , plcTermFile "exampleData" exampleData
+              ]
+          , treeFolderContents "Function"
+              [ plcTermFile "unsafeCoerce" unsafeCoerce
               ]
           , treeFolderContents "InterList"
               [ plcTypeFile "InterList"      $ _recursiveType interListData
@@ -45,7 +51,8 @@ examples =
               , plcTermFile "FoldrInterList" foldrInterList
               ]
           , treeFolderContents "List"
-              [ plcTermFile "omapList" omapList
+              [ plcTermFile "omapList" $ omapList UseCase
+              , plcTermFile "omapListViaChoose" $ omapList UseChoose
               ]
           , treeFolderContents "Pair"
               [ plcTermFile "obothPair" obothPair

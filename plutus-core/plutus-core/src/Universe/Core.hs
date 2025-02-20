@@ -45,8 +45,6 @@ module Universe.Core
     , gshow
     , GEq (..)
     , defaultEq
-    , deriveGEq
-    , deriveGCompare
     , (:~:)(..)
     -- strictly we don't use this, but this is here
     -- partially so we have a dependency on dependent-sum
@@ -60,9 +58,9 @@ import Control.Monad
 import Control.Monad.Trans.State.Strict
 import Data.Dependent.Sum
 import Data.GADT.Compare
-import Data.GADT.Compare.TH
 import Data.GADT.DeepSeq
 import Data.GADT.Show
+import Data.Hashable
 import Data.Kind
 import Data.Proxy
 import Data.Some.Newtype
@@ -549,13 +547,12 @@ these constraints on arguments do not get used in the polymorphic case only mean
 get ignored.
 -}
 type Permits :: forall k. (Type -> Constraint) -> k -> Constraint
-type family Permits
+type family Permits constr
 
--- Implicit pattern matching on the kind.
-type instance Permits = Permits0
-type instance Permits = Permits1
-type instance Permits = Permits2
-type instance Permits = Permits3
+type instance Permits @Type                           constr = Permits0 constr
+type instance Permits @(Type -> Type)                 constr = Permits1 constr
+type instance Permits @(Type -> Type -> Type)         constr = Permits2 constr
+type instance Permits @(Type -> Type -> Type -> Type) constr = Permits3 constr
 
 -- We can't use @All (Everywhere uni) constrs@, because 'Everywhere' is an associated type family
 -- and can't be partially applied, so we have to inline the definition here.
@@ -796,3 +793,15 @@ instance Closed uni => NFData (SomeTypeIn uni) where
 
 instance (Closed uni, uni `Everywhere` NFData) => NFData (ValueOf uni a) where
     rnf = grnf
+
+instance (Closed uni, GEq uni) => Hashable (SomeTypeIn uni) where
+    hashWithSalt salt (SomeTypeIn uni) = hashWithSalt salt $ encodeUni uni
+
+instance (Closed uni, GEq uni, uni `Everywhere` Eq, uni `Everywhere` Hashable) =>
+        Hashable (ValueOf uni a) where
+    hashWithSalt salt (ValueOf uni x) =
+        bring (Proxy @Hashable) uni $ hashWithSalt salt (SomeTypeIn uni, x)
+
+instance (Closed uni, GEq uni, uni `Everywhere` Eq, uni `Everywhere` Hashable) =>
+        Hashable (Some (ValueOf uni)) where
+    hashWithSalt salt (Some s) = hashWithSalt salt s

@@ -1,0 +1,28 @@
+# This workflow checks for broken links in various files in the repo.
+#
+# This workflow runs on all pull requests and on push to master, and it can also be triggered manually.
+
+
+name: "🔗 Broken Links"
+
+on:
+  workflow_dispatch: 
+  pull_request:
+  push:
+    branches:
+      master
+      
+jobs:
+  check:
+    name: Check
+    runs-on: [plutus-ci, self-hosted]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+
+      - name: Run Linkchecker
+        run: |
+          nix develop --no-warn-dirty --accept-flake-config --command ./scripts/check-broken-links.sh
+
+  
+

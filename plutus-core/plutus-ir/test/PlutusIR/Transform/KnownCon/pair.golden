@@ -1,0 +1,5 @@
+let
+  data (Tuple2 :: * -> * -> *) a b | Tuple2_match where
+    Tuple2 : a -> b -> Tuple2 a b
+in
+(\(a : integer) (b : integer) -> /\dead -> addInteger a b) 1 2 {all dead. dead}

@@ -1,0 +1,15 @@
+let
+  unit = all a. a -> a
+in
+let
+  data Bool | match_Bool where
+    True : Bool
+    False : Bool
+in
+let
+  !true : Bool = True
+in
+let
+  !false : Bool = False
+in
+false

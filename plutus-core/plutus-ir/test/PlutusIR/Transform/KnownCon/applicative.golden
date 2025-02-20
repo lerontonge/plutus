@@ -1,0 +1,34 @@
+let
+  data (Maybe :: * -> *) a | Maybe_match where
+    Just : a -> Maybe a
+    Nothing : Maybe a
+  !x : Maybe integer = Just {integer} 1
+  !ds1 : Maybe (integer -> integer)
+    = (let
+          b = integer -> integer
+        in
+        \(dFunctor : (\(f :: * -> *) -> all a b. (a -> b) -> f a -> f b) Maybe)
+         (f : integer -> b)
+         (fa : Maybe integer) ->
+          dFunctor {integer} {b} f fa)
+        (/\a b ->
+           \(f : a -> b) (ds2 : Maybe a) ->
+             Maybe_match
+               {a}
+               ds2
+               {all dead. Maybe b}
+               (\(a : a) -> /\dead -> Just {b} (f a))
+               (/\dead -> Nothing {b})
+               {all dead. dead})
+        (\(p : integer) (q : integer) -> addInteger p q)
+        x
+in
+Maybe_match
+  {integer -> integer}
+  ds1
+  {all dead. Maybe integer}
+  (\(g : integer -> integer) ->
+     /\dead ->
+       (\(v : integer) -> /\dead -> Just {integer} (g v)) 2 {all dead. dead})
+  (/\dead -> Nothing {integer})
+  {all dead. dead}

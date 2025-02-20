@@ -1,0 +1,12 @@
+let
+  data Bool | match_Bool where
+    True : Bool
+    False : Bool
+in
+let
+  !false : Bool = False
+in
+let
+  !anotherFalse : Bool = false
+in
+false

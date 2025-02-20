@@ -5,6 +5,7 @@
 {-# OPTIONS_GHC -fplugin PlutusTx.Plugin -fplugin-opt PlutusTx.Plugin:coverage-all #-}
 {-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:max-simplifier-iterations-pir=0 #-}
 {-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:max-simplifier-iterations-uplc=0 #-}
+{-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:max-cse-iterations=0 #-}
 
 module Plugin.Coverage.Spec (coverage) where
 
@@ -35,31 +36,27 @@ boolTrueFalse = plc (Proxy @"boolTrueFalse") (\() -> True && False)
 boolOtherFunction :: CompiledCode (Maybe Integer -> Maybe Bool)
 boolOtherFunction = plc (Proxy @"boolOtherFunction") fun
 
-{-# INLINEABLE fun #-}
 fun :: Maybe Integer -> Maybe Bool
 fun x = case x of
   Just y | otherFun y -> Just False
   _                   -> Nothing
+{-# INLINEABLE fun #-}
 
 otherFun :: Integer -> Bool
 otherFun x = (x P.== 5) && True
-
-boolOtherFunctionSimplifiesAway :: CompiledCode (Integer -> Bool)
-boolOtherFunctionSimplifiesAway = plc (Proxy @"boolOtherFunctionSimplfiesAway") (\x -> otherFun x)
 
 boolQualifiedDisappears :: CompiledCode (() -> Bool)
 boolQualifiedDisappears = plc (Proxy @"boolQualifiedDisappears") (\ () -> Haskell.True)
 
 coverage :: TestNested
-coverage = testNested "Coverage"
-  [ pure $ testGroup "Application heads and line coverage"
-         [ mkTests "noBool" noBool Set.empty [30]
-         , mkTests "boolTrueFalse" boolTrueFalse (Set.singleton "&&") [33]
-         , mkTests "boolOtherFunction" boolOtherFunction (Set.fromList ["&&", "=="]) [36, 40, 41, 42]
-         , mkTests "boolOtherFunctionSimplifiesAway" boolOtherFunctionSimplifiesAway (Set.fromList ["&&", "=="]) [48]
-         , mkTests "boolQualifiedDisappears" boolQualifiedDisappears Set.empty [51]
+coverage = testNested "Coverage" . pure $ testNestedGhc
+  [ embed $ testGroup "Application heads and line coverage"
+         [ mkTests "noBool" noBool Set.empty [31]
+         , mkTests "boolTrueFalse" boolTrueFalse (Set.singleton "&&") [34]
+         , mkTests "boolOtherFunction" boolOtherFunction (Set.fromList ["&&", "=="]) [37, 40, 41, 42]
+         , mkTests "boolQualifiedDisappears" boolQualifiedDisappears Set.empty [49]
          ]
- , goldenPir "coverageCode" boolOtherFunction ]
+ , goldenPirReadable "coverageCode" boolOtherFunction ]
 
 mkTests :: String -> CompiledCode t -> Set String -> [Int] -> TestTree
 mkTests nm cc heads ls = testGroup nm [ applicationHeadsCorrect cc heads , linesInCoverageIndex cc ls ]

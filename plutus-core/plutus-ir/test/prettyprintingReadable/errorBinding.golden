@@ -1,5 +1,0 @@
-letrec
-  !x_0 : integer = error {integer}
-  ~y_1 : integer = x_0
-in
-1

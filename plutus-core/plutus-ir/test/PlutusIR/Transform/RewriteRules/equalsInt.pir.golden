@@ -1,0 +1,1 @@
+equalsInteger 5 (addInteger 10 2)

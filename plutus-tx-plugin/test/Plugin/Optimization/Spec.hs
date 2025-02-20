@@ -18,9 +18,9 @@ import PlutusTx.Test ()
 import Data.Proxy
 
 optimization :: TestNested
-optimization = testNested "Optimization" [
-    goldenUPlcCatch "alwaysSucceeds" alwaysSucceeds
-  , goldenUPlcCatch "alwaysFails" alwaysFails
+optimization = testNested "Optimization" Prelude.. Prelude.pure Prelude.$ testNestedGhc
+  [ goldenUPlc "alwaysSucceeds" alwaysSucceeds
+  , goldenUPlc "alwaysFails" alwaysFails
   ]
 
 alwaysSucceeds :: CompiledCode (BuiltinData -> BuiltinData -> BuiltinData -> ())

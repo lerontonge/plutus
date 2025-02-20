@@ -13,9 +13,10 @@ module Builtin where
 
 ```
 open import Data.Bool using (Bool;true;false)
+open import Data.List using (List)
 open import Data.Nat using (ℕ;suc)
 open import Data.Fin using (Fin) renaming (zero to Z; suc to S)
-open import Data.List.NonEmpty using (List⁺;_∷⁺_;[_];reverse)
+open import Data.List.NonEmpty using (List⁺;_∷⁺_;[_];reverse;length)
 open import Data.Product using (Σ;proj₁;proj₂)
 open import Relation.Binary using (DecidableEquality)
 
@@ -28,9 +29,9 @@ open import Builtin.Signature using (Sig;sig;_⊢♯;_/_⊢⋆;Args)
                  using (integer;string;bytestring;unit;bool;pdata;bls12-381-g1-element;bls12-381-g2-element;bls12-381-mlresult)
 open _⊢♯ renaming (pair to bpair; list to blist)
 open _/_⊢⋆
-open import Builtin.Constant.AtomicType 
+open import Builtin.Constant.AtomicType
 
-open import Utils.Reflection using (defDec)
+open import Utils.Reflection using (defDec;defShow;defListConstructors)
 ```
 
 ## Built-in functions
@@ -128,6 +129,24 @@ data Builtin : Set where
   -- Keccak-256, Blake2b-224
   keccak-256                      : Builtin
   blake2b-224                     : Builtin
+  -- Bitwise operations
+  byteStringToInteger             : Builtin
+  integerToByteString             : Builtin
+  andByteString                   : Builtin
+  orByteString                    : Builtin
+  xorByteString                   : Builtin
+  complementByteString            : Builtin
+  readBit                         : Builtin
+  writeBits                       : Builtin
+  replicateByte                   : Builtin
+  shiftByteString                 : Builtin
+  rotateByteString                : Builtin
+  countSetBits                    : Builtin
+  findFirstSetBit                 : Builtin
+  -- Ripemd-160
+  ripemd-160                      : Builtin
+  -- Modular Exponentiation
+  expModInteger                   : Builtin
 ```
 
 ## Signatures
@@ -140,13 +159,13 @@ private module SugaredSignature where
 Syntactic sugar for writing the signature of built-ins.
 This is defined in its own module so that these definitions are not exported.
 
-Signature types can have two kinds of polymorphic variables: variables that 
-range over arbitrary types (of kind *) and variables that range over builtin 
+Signature types can have two kinds of polymorphic variables: variables that
+range over arbitrary types (of kind *) and variables that range over builtin
 types (of kind ♯). In order to distinguish them in the sugares syntax we write
 with an uppercase variables of kind *, and with lowercase variables of kind ♯.
 
-The arguments of signature types (argument types) are of type `n⋆ / n♯ ⊢⋆`, for 
-n⋆ free variables of kind *, and n♯ free variables of kind ♯. However, 
+The arguments of signature types (argument types) are of type `n⋆ / n♯ ⊢⋆`, for
+n⋆ free variables of kind *, and n♯ free variables of kind ♯. However,
 shorthands for types, such  as `integer`, `bool`, etc are of type `n♯ ⊢♯`, and
 hence need to be embedded into `n⋆ / n♯ ⊢⋆` using the postfix constructor `↑`.
 
@@ -177,36 +196,36 @@ hence need to be embedded into `n⋆ / n♯ ⊢⋆` using the postfix constructo
 
     pair : ∀{n⋆ n♯} → n♯ ⊢♯ → n♯ ⊢♯ → n⋆ / n♯ ⊢⋆
     pair a b = (bpair a b) ↑
-    
+
     list :  ∀{n⋆ n♯} → n♯ ⊢♯ → n⋆ / n♯ ⊢⋆
     list a = (blist a) ↑
-    ```
-    
-    ###Operators for constructing signatures
-   
-    The following operators are used to express signatures in a familiar way,
-    but ultimately, they construct a Sig 
+```
 
-    An expression 
-      n⋆×n♯ [ t₁ , t₂ , t₃ ]⟶ tᵣ
-    
-    is actually parsed as
-      (((n⋆×n♯ [ t₁) , t₂) , t₃) ]⟶ tᵣ
-    
-    and constructs a signature
+### Operators for constructing signatures
 
-    sig n⋆ n♯ (t₃ ∷ t₂ ∷ t₁) tᵣ
+The following operators are used to express signatures in a familiar way,
+but ultimately, they construct a Sig
 
-    ```
+An expression
+  n⋆×n♯ [ t₁ , t₂ , t₃ ]⟶ tᵣ
+
+is actually parsed as
+  (((n⋆×n♯ [ t₁) , t₂) , t₃) ]⟶ tᵣ
+
+and constructs a signature
+
+sig n⋆ n♯ (t₃ ∷ t₂ ∷ t₁) tᵣ
+
+```
     ArgSet : Set
-    ArgSet = Σ (ℕ × ℕ) (λ { (n⋆ ,, n♯) → Args n⋆ n♯}) 
+    ArgSet = Σ (ℕ × ℕ) (λ { (n⋆ ,, n♯) → Args n⋆ n♯})
 
     ArgTy : ArgSet → Set
-    ArgTy ((n⋆ ,, n♯) ,, _) = n⋆ / n♯ ⊢⋆ 
+    ArgTy ((n⋆ ,, n♯) ,, _) = n⋆ / n♯ ⊢⋆
 
     infix 12 _[_
     _[_ : (nn : ℕ × ℕ)  → proj₁ nn / proj₂ nn ⊢⋆ → ArgSet
-    _[_ (n⋆ ,, n♯) x = (n⋆ ,, n♯) ,, [ x ]  
+    _[_ (n⋆ ,, n♯) x = (n⋆ ,, n♯) ,, [ x ]
 
     infixl 10 _,_
     _,_ : (p : ArgSet) → ArgTy p → ArgSet
@@ -215,13 +234,13 @@ hence need to be embedded into `n⋆ / n♯ ⊢⋆` using the postfix constructo
     infix 8 _]⟶_
     _]⟶_ : (p : ArgSet) → ArgTy p → Sig
     _]⟶_ ((n⋆ ,, n♯) ,, as) res = sig n⋆ n♯ as res
-    ```
+```
 
     The signature of each builtin
 
-    ```
+```
     signature : Builtin → Sig
-    signature addInteger                      = ∙ [ integer ↑ , integer ↑ ]⟶ integer ↑ 
+    signature addInteger                      = ∙ [ integer ↑ , integer ↑ ]⟶ integer ↑
     signature subtractInteger                 = ∙ [ integer ↑ , integer ↑ ]⟶ integer ↑
     signature multiplyInteger                 = ∙ [ integer ↑ , integer ↑ ]⟶ integer ↑
     signature divideInteger                   = ∙ [ integer ↑ , integer ↑ ]⟶ integer ↑
@@ -244,6 +263,7 @@ hence need to be embedded into `n⋆ / n♯ ⊢⋆` using the postfix constructo
     signature blake2b-224                     = ∙ [ bytestring ↑ ]⟶ bytestring ↑
     signature blake2b-256                     = ∙ [ bytestring ↑ ]⟶ bytestring ↑
     signature keccak-256                      = ∙ [ bytestring ↑ ]⟶ bytestring ↑
+    signature ripemd-160                      = ∙ [ bytestring ↑ ]⟶ bytestring ↑
     signature verifyEd25519Signature          = ∙ [ bytestring ↑ , bytestring ↑ , bytestring ↑ ]⟶ bool ↑
     signature verifyEcdsaSecp256k1Signature   = ∙ [ bytestring ↑ , bytestring ↑ , bytestring ↑ ]⟶ bool ↑
     signature verifySchnorrSecp256k1Signature = ∙ [ bytestring ↑ , bytestring ↑ , bytestring ↑ ]⟶ bool ↑
@@ -269,7 +289,7 @@ hence need to be embedded into `n⋆ / n♯ ⊢⋆` using the postfix constructo
     signature bData                           = ∙ [ bytestring ↑ ]⟶ pdata ↑
     signature unConstrData                    = ∙ [ pdata ↑ ]⟶ pair integer (blist pdata)
     signature unMapData                       = ∙ [ pdata ↑ ]⟶ list (bpair pdata pdata)
-    signature unListData                      = ∙ [ pdata ↑ ]⟶ list pdata 
+    signature unListData                      = ∙ [ pdata ↑ ]⟶ list pdata
     signature unIData                         = ∙ [ pdata ↑ ]⟶ integer ↑
     signature unBData                         = ∙ [ pdata ↑ ]⟶ bytestring ↑
     signature equalsData                      = ∙ [ pdata ↑ , pdata ↑ ]⟶ bool ↑
@@ -294,8 +314,26 @@ hence need to be embedded into `n⋆ / n♯ ⊢⋆` using the postfix constructo
     signature bls12-381-millerLoop            = ∙ [ bls12-381-g1-element ↑ , bls12-381-g2-element ↑ ]⟶ bls12-381-mlresult ↑
     signature bls12-381-mulMlResult           = ∙ [ bls12-381-mlresult ↑ , bls12-381-mlresult ↑ ]⟶ bls12-381-mlresult ↑
     signature bls12-381-finalVerify           = ∙ [ bls12-381-mlresult ↑ , bls12-381-mlresult ↑ ]⟶ bool ↑
+    signature byteStringToInteger             = ∙ [ bool ↑ , bytestring ↑ ]⟶ integer ↑
+    signature integerToByteString             = ∙ [ bool ↑ , integer ↑ , integer ↑ ]⟶  bytestring ↑
+    signature andByteString                   = ∙ [ bool ↑ , bytestring ↑ , bytestring ↑ ]⟶  bytestring ↑
+    signature orByteString                    = ∙ [ bool ↑ , bytestring ↑ , bytestring ↑ ]⟶  bytestring ↑
+    signature xorByteString                   = ∙ [ bool ↑ , bytestring ↑ , bytestring ↑ ]⟶  bytestring ↑
+    signature complementByteString            = ∙ [ bytestring ↑ ]⟶  bytestring ↑
+    signature readBit                         = ∙ [ bytestring ↑ , integer ↑ ]⟶  bool ↑
+    signature writeBits                       = ∙ [ bytestring ↑ , list integer , bool ↑ ]⟶  bytestring ↑
+    signature replicateByte                   = ∙ [ integer ↑ , integer ↑ ]⟶  bytestring ↑
+    signature shiftByteString                 = ∙ [ bytestring ↑ , integer ↑ ]⟶  bytestring ↑
+    signature rotateByteString                = ∙ [ bytestring ↑ , integer ↑ ]⟶  bytestring ↑
+    signature countSetBits                    = ∙ [ bytestring ↑ ]⟶  integer ↑
+    signature findFirstSetBit                 = ∙ [ bytestring ↑ ]⟶  integer ↑
+    signature expModInteger                   = ∙ [ integer ↑ , integer ↑ , integer ↑ ]⟶  integer ↑
 
 open SugaredSignature using (signature) public
+
+-- The arity of a builtin, according to its signature.
+arity : Builtin → ℕ
+arity b = length (Sig.args (signature b))
 
 ```
 
@@ -378,6 +416,21 @@ Each Agda built-in name must be mapped to a Haskell name.
                                           | Bls12_381_finalVerify
                                           | Keccak_256
                                           | Blake2b_224
+                                          | ByteStringToInteger
+                                          | IntegerToByteString
+                                          | AndByteString
+                                          | OrByteString
+                                          | XorByteString
+                                          | ComplementByteString
+                                          | ReadBit
+                                          | WriteBits
+                                          | ReplicateByte
+                                          | ShiftByteString
+                                          | RotateByteString
+                                          | CountSetBits
+                                          | FindFirstSetBit
+                                          | Ripemd_160
+                                          | ExpModInteger
                                           ) #-}
 ```
 
@@ -388,7 +441,7 @@ whose semantics are provided by a Haskell function.
 
 ```
 postulate
-  length                    : ByteString → Int
+  lengthBS                  : ByteString → Int
   index                     : ByteString → Int → Int
   div                       : Int → Int → Int
   quot                      : Int → Int → Int
@@ -431,15 +484,42 @@ postulate
   BLS12-381-finalVerify     : Bls12-381-MlResult → Bls12-381-MlResult → Bool
   KECCAK-256                : ByteString → ByteString
   BLAKE2B-224               : ByteString → ByteString
+  BStoI                     : Bool -> ByteString -> Int
+  ItoBS                     : Bool -> Int -> Int -> Maybe ByteString
+  andBYTESTRING             : Bool -> ByteString -> ByteString -> ByteString
+  orBYTESTRING              : Bool -> ByteString -> ByteString -> ByteString
+  xorBYTESTRING             : Bool -> ByteString -> ByteString -> ByteString
+  complementBYTESTRING      : ByteString -> ByteString
+  readBIT                   : ByteString -> Int -> Maybe Bool
+  writeBITS                 : ByteString -> List Int -> Bool -> Maybe ByteString
+  replicateBYTE             : Int -> Int -> Maybe ByteString
+  shiftBYTESTRING           : ByteString -> Int -> ByteString
+  rotateBYTESTRING          : ByteString -> Int -> ByteString
+  countSetBITS              : ByteString -> Int
+  findFirstSetBIT           : ByteString -> Int
+  RIPEMD-160                : ByteString → ByteString
+  expModINTEGER             : Int -> Int -> Int -> Maybe Int
 ```
 
 ### What builtin operations should be compiled to if we compile to Haskell
 
 ```
+{- Note [Fixed-width integral types in builtins in Agda].  Many of the
+   denotations in PlutusCore.Default.Builtins involve arguments which are of
+   fixed-width integral types such as Int or Word8. These all appear as
+   `integer` in Plutus Core, and the builtin machinery handles the conversion
+   from Haskell's `Integer` (the underlying type of `integer`) to the
+   appropriate type automatically.  If a argument of this kind doesn't fit into
+   the bounds of the relevant type then *an error will occur* at run-time; this
+   happens for example with `consByteString`, where the first argument must be
+   in the range [0..255].  To preserve the semantics here, a bounds check must
+   be performed on `Int` arguments to builtins which expect an argument of some
+   fixed-width argument; this can be done using `toIntegralSized`, for example.
+-}
+
 {-# FOREIGN GHC {-# LANGUAGE TypeApplications #-} #-}
 {-# FOREIGN GHC import Control.Composition ((.*)) #-}
 {-# FOREIGN GHC import qualified Data.ByteString as BS #-}
-{-# FOREIGN GHC import qualified Data.ByteArray as B #-}
 {-# FOREIGN GHC import Debug.Trace (trace) #-}
 {-# FOREIGN GHC import PlutusCore.Crypto.Hash as Hash #-}
 {-# FOREIGN GHC import Data.Text.Encoding #-}
@@ -447,7 +527,7 @@ postulate
 {-# FOREIGN GHC import Data.Either.Extra (eitherToMaybe) #-}
 {-# FOREIGN GHC import Data.Word (Word8) #-}
 {-# FOREIGN GHC import Data.Bits (toIntegralSized) #-}
-{-# COMPILE GHC length = toInteger . BS.length #-}
+{-# COMPILE GHC lengthBS = toInteger . BS.length #-}
 
 -- no binding needed for addition
 -- no binding needed for subtract
@@ -465,9 +545,9 @@ postulate
 
 {-# COMPILE GHC TRACE = \_ s -> trace (Text.unpack s) #-}
 {-# COMPILE GHC concat = BS.append #-}
-{-# COMPILE GHC SHA2-256 = B.convert . Hash.sha2_256 #-}
-{-# COMPILE GHC SHA3-256 = B.convert . Hash.sha3_256 #-}
-{-# COMPILE GHC BLAKE2B-256 = B.convert . Hash.blake2b_256 #-}
+{-# COMPILE GHC SHA2-256 = Hash.sha2_256 #-}
+{-# COMPILE GHC SHA3-256 = Hash.sha3_256 #-}
+{-# COMPILE GHC BLAKE2B-256 = Hash.blake2b_256 #-}
 {-# COMPILE GHC equals = (==) #-}
 {-# COMPILE GHC B< = (<) #-}
 {-# COMPILE GHC B<= = (<=) #-}
@@ -480,19 +560,19 @@ postulate
 {-# FOREIGN GHC import PlutusCore.Crypto.Ed25519 #-}
 {-# FOREIGN GHC import PlutusCore.Crypto.Secp256k1 #-}
 
--- The Vasil verification functions return results wrapped in Emitters, which
--- may perform a side-effect such as writing some text to a log.  The code below
--- provides an adaptor function which turns an Emitter (EvaluationResult r) into
--- Just r, where r is the real return type of the builtin.
+-- Some builtins return results wrapped in BuiltinResult, which may perform a side-effect such as
+-- writing some text to a log.  The code below provides an adaptor function which turns a
+-- BuiltinResult r into Just r, where r is the real return type of the builtin.
 -- TODO: deal directly with emitters in Agda?
 
-{-# FOREIGN GHC import PlutusCore.Builtin (runEmitter) #-}
-{-# FOREIGN GHC import PlutusCore.Evaluation.Result (EvaluationResult (EvaluationSuccess, EvaluationFailure)) #-}
-{-# FOREIGN GHC emitterResultToMaybe = \e -> case fst e of {EvaluationSuccess r -> Just r; EvaluationFailure -> Nothing} #-}
+{-# FOREIGN GHC import PlutusPrelude (reoption) #-}
+{-# FOREIGN GHC import PlutusCore.Builtin (BuiltinResult) #-}
+{-# FOREIGN GHC builtinResultToMaybe :: BuiltinResult a -> Maybe a #-}
+{-# FOREIGN GHC builtinResultToMaybe = reoption #-}
 
-{-# COMPILE GHC verifyEd25519Sig = \k m s -> emitterResultToMaybe . runEmitter $ verifyEd25519Signature_V2 k m s #-}
-{-# COMPILE GHC verifyEcdsaSecp256k1Sig = \k m s -> emitterResultToMaybe . runEmitter $ verifyEcdsaSecp256k1Signature k m s #-}
-{-# COMPILE GHC verifySchnorrSecp256k1Sig = \k m s -> emitterResultToMaybe . runEmitter $ verifySchnorrSecp256k1Signature k m s #-}
+{-# COMPILE GHC verifyEd25519Sig = \k m s -> builtinResultToMaybe $ verifyEd25519Signature k m s #-}
+{-# COMPILE GHC verifyEcdsaSecp256k1Sig = \k m s -> builtinResultToMaybe $ verifyEcdsaSecp256k1Signature k m s #-}
+{-# COMPILE GHC verifySchnorrSecp256k1Sig = \k m s -> builtinResultToMaybe $ verifySchnorrSecp256k1Signature k m s #-}
 
 {-# COMPILE GHC ENCODEUTF8 = encodeUtf8 #-}
 {-# COMPILE GHC DECODEUTF8 = eitherToMaybe . decodeUtf8' #-}
@@ -518,8 +598,37 @@ postulate
 {-# COMPILE GHC BLS12-381-mulMlResult = Pairing.mulMlResult #-}
 {-# COMPILE GHC BLS12-381-finalVerify = Pairing.finalVerify #-}
 
-{-# COMPILE GHC KECCAK-256 = B.convert . Hash.keccak_256 #-}
-{-# COMPILE GHC BLAKE2B-224 = B.convert . Hash.blake2b_224 #-}
+{-# COMPILE GHC KECCAK-256 = Hash.keccak_256 #-}
+{-# COMPILE GHC BLAKE2B-224 = Hash.blake2b_224 #-}
+
+{-# FOREIGN GHC import PlutusCore.Bitwise qualified as Bitwise #-}
+{-# COMPILE GHC BStoI = Bitwise.byteStringToInteger #-}
+{-# COMPILE GHC ItoBS = \e w n -> builtinResultToMaybe $ Bitwise.integerToByteString e w n #-}
+{-# COMPILE GHC andBYTESTRING = Bitwise.andByteString #-}
+{-# COMPILE GHC orBYTESTRING = Bitwise.orByteString #-}
+{-# COMPILE GHC xorBYTESTRING = Bitwise.xorByteString #-}
+{-# COMPILE GHC complementBYTESTRING = Bitwise.complementByteString #-}
+{-# COMPILE GHC readBIT = \s n -> builtinResultToMaybe $ Bitwise.readBit s (fromIntegral n) #-}
+{-# COMPILE GHC writeBITS = \s ps u -> builtinResultToMaybe $ Bitwise.writeBits s (fmap fromIntegral ps) u #-}
+-- The Plutus Core version of `replicateByte n w` can fail in two ways: if n < 0 or n >= 8192 then
+-- the implementation PlutusCore.Bitwise will return BuiltinFailure; if w < 0 or w >= 256 then the
+-- denotation in `PlutusCore.Default.Builtins` will fail when the builtin machinery tries to convert
+-- it to a Word8.  We have to replicate this behaviour here. -}
+{-# COMPILE GHC replicateBYTE = \n w8 ->
+        case toIntegralSized w8 of { Nothing -> Nothing; Just w -> builtinResultToMaybe $ Bitwise.replicateByte n w } #-}
+{-# COMPILE GHC shiftBYTESTRING = Bitwise.shiftByteString #-}
+{-# COMPILE GHC rotateBYTESTRING = Bitwise.rotateByteString #-}
+{-# COMPILE GHC countSetBITS = \s -> fromIntegral $ Bitwise.countSetBits s #-}
+{-# COMPILE GHC findFirstSetBIT = \s -> fromIntegral $ Bitwise.findFirstSetBit s #-}
+
+{-# COMPILE GHC RIPEMD-160 = Hash.ripemd_160 #-}
+{-# FOREIGN GHC import PlutusCore.Crypto.ExpMod qualified as ExpMod #-}
+-- here we explicitly do a Natural-check on m; the builtin machinery in plutus does such a check usually implicitly
+-- but we cannot use the builtin machinery here.
+{-# COMPILE GHC expModINTEGER = \b e m ->
+    if m < 0
+    then Nothing
+    else fmap fromIntegral $ builtinResultToMaybe $ ExpMod.expMod b e (fromIntegral m) #-}
 
 -- no binding needed for appendStr
 -- no binding needed for traceStr
@@ -532,4 +641,18 @@ comparing expected with actual results.
 ```
 decBuiltin : DecidableEquality Builtin
 unquoteDef decBuiltin = defDec (quote Builtin) decBuiltin
+```
+
+We define a show function for Builtins
+
+```
+showBuiltin : Builtin → String
+unquoteDef showBuiltin = defShow (quote Builtin) showBuiltin
+```
+
+`builtinList` is a list with all builtins.
+
+```
+builtinList : List Builtin
+unquoteDef builtinList = defListConstructors (quote Builtin) builtinList
 ```

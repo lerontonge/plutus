@@ -1,0 +1,4 @@
+let
+  !f : all t. integer = let ~x : integer = addInteger 1 2 in /\t -> x
+in
+addInteger (f {integer}) (f {integer})

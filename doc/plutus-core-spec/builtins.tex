@@ -1,4 +1,4 @@
-\section{Interpretation of Built-in Types and Functions}
+\section{Interpretation of built-in types and functions}
 \label{sec:specify-builtins}
 As mentioned above, Plutus Core is generic over a universe $\Uni$ of types and
 a set $\Fun$ of built-in functions.  As the terminology suggests, built-in
@@ -55,13 +55,14 @@ would be considerably less compact.}
 The universe $\Uni$ consists entirely of \textit{names}, and the semantics of
 these names are given by \textit{denotations}. Each built-in type $\tn \in \Uni$
 is associated with some mathematical set $\denote{\tn}$, the \textit{denotation}
-of $\tn$. For example, we might have $\denote{\texttt{boolean}}=
+of $\tn$. For example, we might have $\denote{\texttt{bool}}=
 \{\mathsf{true}, \mathsf{false}\}$ and $\denote{\texttt{integer}} = \mathbb{Z}$
-and $\denote{\pairOf{a}{b}} = \denote{a} \times \denote{b}$.  See
-Appendix~\ref{appendix:default-builtins-alonzo} for a description of the
-built-in types and type operators available in the Alonzo release of Plutus
-Core.%
-\nomenclature[Dz1]{$\denote{T}$}{Denotation of a type $T \in \Uni$}
+and $\denote{\pairOf{a}{b}} = \denote{a} \times \denote{b}$.
+
+See Section~\ref{sec:cardano-builtins}
+for a description of the types and functions which have already been deployed on
+the Cardano blockchain (or will be in the near future).
+% \nomenclature[Dz1]{$\denote{T}$}{Denotation of a type $T \in \Uni$}
 
 For non-atomic type names $\tn = \op(\tn_1, \ldots, \tn_r)$ we would generally
 expect the denotation of $\tn$ to be obtained in some uniform way (ie,
@@ -114,7 +115,7 @@ and
 $$
    \kindstar{v} \text{\quad if $v \in \Var_*$}.
 $$
-   
+
 \kwxm{I'm using syntax to represent kinds here.  I haven't introduced actual
   kinds because (a) we don't have a proper type system in Plutus Core (yet), and
   (b) the \texttt{TypeScheme} type in the implementation only has one kind of
@@ -208,7 +209,7 @@ and only if one of the following holds:
 \begin{itemize}
   \item $T = P$ and $S =\varnothing$.
   \item $P \in \Var_\#$ and $S = \{(v_\#, T)\}$.
-  \item 
+  \item
     \begin{itemize}
     \item $T = \op(T_1, \ldots, T_n)$ with each $T_i \in \Uni$.
     \item $P = \op(P_1, \ldots, P_n)$ with each $P_i \in \Unihash$.
@@ -223,7 +224,7 @@ and only if one of the following holds:
 
 \kwxm{\sf I tried using inference rules for this but the final case
   got kind of out of hand.}
-  
+
 \subsection{Built-in functions}
 \label{sec:builtin-functions}
 
@@ -275,10 +276,9 @@ mathematical entities occurring as members of type denotations $\denote{\tn}$
 are embedded directly as values $c$ in Plutus Core constant terms. In reality,
 tools which work with Plutus Core will need some concrete syntactic
 representation of constants; we do not specify this here, but see
-Section~\ref{sec:alonzo-built-in-types} for suggested syntax for the built-in
-types included in the Alonzo release.
-
-
+Section~\ref{sec:cardano-builtins}
+for suggested syntax for the built-in types currently in use on the Cardano
+blockchain.
 
 \subsubsection{Signatures and denotations of built-in functions}
 \label{sec:signatures}
@@ -326,7 +326,7 @@ $$[\iota_1, \ldots, \iota_n] \rightarrow \tau$$ with
 \noindent For example, in our default set of built-in functions we have the
 functions \texttt{mkCons} with signature $[\forall a_\#, a_\#,$  %% Allow line break
   $\listOf{a_\#}] \rightarrow \listOf{a_\#}$ and \texttt{ifThenElse} with signature
-$[\forall a_*, \mathtt{boolean}, a_*, a_*] \rightarrow a_*$.  When we use
+$[\forall a_*, \mathtt{bool}, a_*, a_*] \rightarrow a_*$.  When we use
 \texttt{mkCons} its arguments must be of built-in types, but the two final
 arguments of \texttt{ifThenElse} can be any Plutus Core values.
 
@@ -365,7 +365,7 @@ $[\tau_1, \ldots, \tau_m] \rightarrow \tau$ to emphasise that the entries are
 
 \medskip
 \noindent Also, given an arity $= [\iota_1, \ldots, \iota_n]$, the \textit{reduced
-  arity} is 
+  arity} is
 $$
 \alphabar = [\iota_j : \iota_j \notin \QVar].
 $$%
@@ -522,7 +522,7 @@ the function.
 %%     \end{array}\]
 %% \end{minipage}
 
-  
+
 \subsection{Evaluation of built-in functions}
 \label{sec:builtin-evaluation}
 
@@ -548,7 +548,7 @@ describes the conditions for type compatibility.
   returning a constant of a third type.  However, I think it'll be very hard to
   describe what's actually going on so I'm just assuming that builtins always
   check this stuff.}
-  
+
 
 \medskip
 \noindent In detail, given a reduced arity $\alphabar = [\tau_1, \ldots,

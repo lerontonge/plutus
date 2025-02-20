@@ -10,31 +10,32 @@ in the paper 'Secrets of the GHC Inliner'.
 (2) call site inlining of fully applied functions. See `Inline.CallSiteInline.hs`
 -}
 
-module PlutusIR.Transform.Inline.Inline (inline, InlineHints (..)) where
-import PlutusIR
-import PlutusIR.Analysis.Dependencies qualified as Deps
-import PlutusIR.Analysis.Usages qualified as Usages
-import PlutusIR.MkPir (mkLet)
-import PlutusIR.Transform.Inline.Utils
-import PlutusIR.Transform.Rename ()
-import PlutusPrelude
-
+module PlutusIR.Transform.Inline.Inline (inline, inlinePass, inlinePassSC, InlineHints (..)) where
 import PlutusCore qualified as PLC
 import PlutusCore.Annotation
-import PlutusCore.Builtin qualified as PLC
-import PlutusCore.Name
+import PlutusCore.Name.Unique
 import PlutusCore.Quote
 import PlutusCore.Rename (dupable)
+import PlutusIR
+import PlutusIR.Analysis.Builtins
+import PlutusIR.Analysis.Size (termSize)
+import PlutusIR.Analysis.Usages qualified as Usages
+import PlutusIR.Analysis.VarInfo qualified as VarInfo
+import PlutusIR.Contexts (AppContext (..), fillAppContext, splitApplication)
+import PlutusIR.MkPir (mkLet)
+import PlutusIR.Pass
+import PlutusIR.Transform.Inline.CallSiteInline (callSiteInline)
+import PlutusIR.Transform.Inline.Utils
+import PlutusIR.Transform.Rename ()
+import PlutusIR.TypeCheck qualified as TC
+import PlutusPrelude
 
 import Control.Lens (forMOf, traverseOf)
 import Control.Monad.Extra
 import Control.Monad.Reader (runReaderT)
 import Control.Monad.State (evalStateT, modify')
-
-import Algebra.Graph qualified as G
-import Data.Map qualified as Map
-import PlutusIR.Transform.Inline.CallSiteInline (inlineSaturatedApp, splitParams)
-import Witherable (Witherable (wither))
+import Control.Monad.State.Class (gets)
+import Data.Maybe
 
 {- Note [Inlining approach and 'Secrets of the GHC Inliner']
 The approach we take is more-or-less exactly taken from 'Secrets of the GHC Inliner'.
@@ -155,21 +156,49 @@ But we don't really care about the costs listed there: it's easy for us to get a
 supply, and the performance cost does not currently seem relevant. So it's fine.
 -}
 
+inlinePassSC
+    :: forall uni fun ann m
+    . (PLC.Typecheckable uni fun, PLC.GEq uni, Ord ann, ExternalConstraints TyName Name uni fun m)
+    => Bool
+    -- ^ should we inline constants?
+    -> TC.PirTCConfig uni fun
+    -> InlineHints Name ann
+    -> BuiltinsInfo uni fun
+    -> Pass m TyName Name uni fun ann
+inlinePassSC ic tcconfig hints binfo =
+    renamePass <> inlinePass ic tcconfig hints binfo
+
+inlinePass
+    :: forall uni fun ann m
+    . (PLC.Typecheckable uni fun, PLC.GEq uni, Ord ann, ExternalConstraints TyName Name uni fun m)
+    => Bool
+    -- ^ should we inline constants?
+    -> TC.PirTCConfig uni fun
+    -> InlineHints Name ann
+    -> BuiltinsInfo uni fun
+    -> Pass m TyName Name uni fun ann
+inlinePass ic tcconfig hints binfo =
+  NamedPass "inline" $
+    Pass
+      (inline ic hints binfo )
+      [GloballyUniqueNames, Typechecks tcconfig]
+      [ConstCondition GloballyUniqueNames, ConstCondition (Typechecks tcconfig)]
+
 -- | Inline non-recursive bindings. Relies on global uniqueness, and preserves it.
 -- See Note [Inlining and global uniqueness]
 inline
     :: forall tyname name uni fun ann m
     . ExternalConstraints tyname name uni fun m
-    => InlineHints name ann
-    -> PLC.BuiltinVersion fun
+    => Bool
+    -- ^ should we inline constants?
+    -> InlineHints name ann
+    -> BuiltinsInfo uni fun
     -> Term tyname name uni fun ann
     -> m (Term tyname name uni fun ann)
-inline hints ver t = let
-        inlineInfo :: InlineInfo name fun ann
-        inlineInfo = InlineInfo (snd deps) usgs hints ver
-        -- We actually just want the variable strictness information here!
-        deps :: (G.Graph Deps.Node, Map.Map PLC.Unique Strictness)
-        deps = Deps.runTermDeps ver t
+inline ic hints binfo t = let
+        inlineInfo :: InlineInfo tyname name uni fun ann
+        inlineInfo = InlineInfo vinfo usgs hints binfo ic
+        vinfo = VarInfo.termVarInfo t
         usgs :: Usages.Usages
         usgs = Usages.termUsages t
     in liftQuote $ flip evalStateT mempty $ flip runReaderT inlineInfo $ processTerm t
@@ -188,6 +217,18 @@ TODO: merge them or figure out a way to share more work, especially since there'
 This might mean reinventing GHC's OccAnal...
 -}
 
+{- Note [Processing multi-lets]
+
+When we process a term in the inliner, if it is a multi-let, we split it and process the
+bindings one by one, because the bindings after `b` need to be considered to determine
+whether `b` can be unconditionally inlined. Consider e.g.
+`let !x = <effectful>; !y = <effectful> in x`, we need to look at the binding for
+`y` to know that inlining `x` would change the order of effects.
+It's awkward to do this when they are part of the same term, (we would be
+looking at "the let term but only considering all the bindings after x") and
+much easier when they are just separate terms.
+-}
+
 -- | Run the inliner on a `Core.Type.Term`.
 processTerm
     :: forall tyname name uni fun ann. InliningConstraints tyname name uni fun
@@ -199,30 +240,135 @@ processTerm = handleTerm <=< traverseOf termSubtypes applyTypeSubstitution where
         -> InlineM tyname name uni fun ann (Term tyname name uni fun ann)
     handleTerm = \case
         v@(Var _ n) -> fromMaybe v <$> substName n
-        Let ann NonRec bs t -> do
-            -- Process bindings, eliminating those which will be inlined unconditionally,
-            -- and accumulating the new substitutions.
-            -- See Note [Removing inlined bindings]
-            -- Note that we don't *remove* the bindings or scope the state, so the state will carry
-            -- over into "sibling" terms. This is fine because we have global uniqueness
-            -- (see Note [Inlining and global uniqueness]), if somewhat wasteful.
-            bs' <- wither (processSingleBinding t) (toList bs)
-            t' <- processTerm t
-            -- Use 'mkLet': we're using lists of bindings rather than NonEmpty since we might
-            -- actually have got rid of all of them!
-            pure $ mkLet ann NonRec bs' t'
+        Let ann NonRec bs t -> case bs of
+            b :| [] -> do
+                -- Process the binding, eliminating it if it will be inlined unconditionally,
+                -- and accumulating the new substitutions.
+                -- See Note [Removing inlined bindings]
+                -- Note that we don't *remove* the binding or scope the state, so the state will
+                -- carry over into "sibling" terms. This is fine because we have global uniqueness
+                -- (see Note [Inlining and global uniqueness]), if somewhat wasteful.
+                b' <- processSingleBinding t b
+                t' <- processTerm t
+                -- Use 'mkLet': which takes a possibly empty list of bindings (rather than
+                -- a non-empty list)
+                pure $ mkLet ann NonRec (maybeToList b') t'
+            -- See Note [Processing multi-lets]
+            b :| rest -> handleTerm (Let ann NonRec (pure b) (mkLet ann NonRec rest t))
         -- This includes recursive let terms, we don't even consider inlining them at the moment
-        t ->
-            -- process all subterms first, so that the rhs won't be processed more than once. This
-            -- is important because otherwise the number of times we process them can grow
-            -- exponentially in the case that it has nested `let`s.
-            --
-            -- Then, consider call site inlining for each node that have gone through unconditional
-            -- inlining. Because `inlineSaturatedApp` traverses *all* application nodes for each
-            -- subterm, the runtime is quadratic for terms with a long chain of applications.
-            -- If we use the context-based approach like in GHC, this won't be a problem, so we may
-            -- consider that in the future.
-            inlineSaturatedApp =<< forMOf termSubterms t processTerm
+        t -> do
+            -- See Note [Processing order of call site inlining]
+            let (hd, args) = splitApplication t
+                processArgs ::
+                    AppContext tyname name uni fun ann ->
+                    InlineM tyname name uni fun ann (AppContext tyname name uni fun ann)
+                processArgs (TermAppContext arg ann ctx) = do
+                    processedArg <- processTerm arg
+                    processedArgs <- processArgs ctx
+                    pure $ TermAppContext processedArg ann processedArgs
+                processArgs (TypeAppContext ty ann ctx) = do
+                    processedArgs <- processArgs ctx
+                    ty' <- applyTypeSubstitution ty
+                    pure $ TypeAppContext ty' ann processedArgs
+                processArgs AppContextEnd = pure AppContextEnd
+            case args of
+                -- not really an application, so hd is the term itself. Processing it will loop.
+                AppContextEnd -> forMOf termSubterms t processTerm
+                _ -> do
+                    hd' <- processTerm hd
+                    args' <- processArgs args
+                    let reconstructed = fillAppContext hd' args'
+                    case hd' of
+                        Var _ name -> do
+                            gets (lookupVarInfo name) >>= \case
+                                Just varInfo -> do
+                                    maybeInlined <-
+                                        callSiteInline
+                                            (termSize reconstructed)
+                                            varInfo
+                                            args'
+                                    pure $ fromMaybe reconstructed maybeInlined
+                                Nothing -> pure reconstructed
+                        _ -> pure reconstructed
+
+{- Note [Processing order of call site inlining]
+We have two options on how we process terms for the call site inliner:
+
+1. process the subterms first, then go up each node
+2. process the whole term first, then process the subterms
+
+Depending on which option we choose we get different results after one `inline` pass. For example:
+
+For the `letFunConstMulti` test:
+
+let
+  constFun :: Integer -> Integer -> Integer
+  constFun = \x y -> x
+in  constFun (constFun 3 5)
+
+With option 1, we first look at the subterms `constFun 3` and `5`. The application of `constFun` to
+3 is safe, so it is applied and beta reduced, turning
+
+constFun (constFun 3 5) to constFun ((\y -> 3) 5)
+
+Then, we look at the term constFun ((\y -> 3) 5). I.e., application of constFun to ((\y -> 3) 5).
+Because the argument ((\y -> 3) 5) is an application, it is considered unsafe.
+So no application applies here and the golden file returns:
+
+let
+  constFun :: Integer -> Integer -> Integer
+  constFun = \x y -> x
+in  constFun ((\y -> 3) 5)
+
+With option 2, we first look at `constFun (constFun 3 5)`. The application of constFun to
+(constFun 3 5) is unsafe because the argument (constFun 3 5) is an application.
+So no application applies here and we move on to the subterm (constFun 3 5). Application of constFun
+3 to the argument 5 is safe. Thus
+
+constFun 3 5 ==> (((\x y -> x) 3) 5) ==> (\x -> x) 3 and again application of 3 is safe and is
+applied and beta reduced to 3.
+
+So in this case, we get more reduction in 1 pass with option 2. However, in some cases we get
+more reduction in 1 pass with option 1. Consider the `letOverAppMulti` test case (with unconditional
+inlining already done):
+
+let
+    idFun :: Integer -> Integer
+    idFun = \y -> y
+    k :: (Integer -> Integer) -> (Integer -> Integer)
+    k = \x -> idFun
+in (k (k idFun)) 6
+
+With option 1, we look at the subterms (k idFun) and 6 first. The argument idFun is a variable that
+is safe to beta reduce, so
+
+k idFun reduces to (\x -> idFun) idFun which reduces to idFun
+
+Now we have the term k idFun 6. Applying k to idFun is safe so it is reduced to idFun. idFun 6
+reduces to 6.
+
+With option 2, we look at the whole term (k (k idFun)) 6. The argument (k idFun) is an application
+and thus it is unsafe. No inlining happens here. Then we look at the subterm (k idFun), again it can
+be reduced to idFun and we have
+
+let
+    idFun :: Integer -> Integer
+    idFun = \y -> y
+    k :: (Integer -> Integer) -> (Integer -> Integer)
+    k = \x -> idFun
+in (k idFun) 6
+
+in the golden file in 1 inline pass.
+
+We can see from this eg that we are not reducing as much because the arguments are unsafe,
+frequently because they are applications. So if we process the arguments first, then we will be
+reducing the most in 1 pass. Thus, how we process the terms is actually the third option:
+
+First, split the term into an application context. Then, process the head and arguments of the
+application context. If the head is a variable, consider call site inlining, starting with the whole
+term, but with the head (the rhs of the variable) and the arguments already processed.
+
+-}
 
 -- | Run the inliner on a single non-recursive let binding.
 processSingleBinding
@@ -237,7 +383,6 @@ processSingleBinding body = \case
             -- this binding is going to be unconditionally inlined
             Nothing -> pure Nothing
             Just rhs -> do
-                let (arity, bodyToCheck) = splitParams rhs
                 -- when we encounter a binding, we add it to
                 -- the global map `Utils.NonRecInScopeSet`.
                 -- The `varRhs` added to the map has been unconditionally inlined.
@@ -248,7 +393,10 @@ processSingleBinding body = \case
                 modify' $
                     extendVarInfo
                         n
-                        (MkVarInfo s rhs arity (Done (dupable bodyToCheck)))
+                        -- no need to rename here when we enter the rhs into the map. Renaming needs
+                        -- to be done at each call site, because each substituted instance has to
+                        -- have unique names
+                        (MkVarInfo s (Done (dupable rhs)))
                 pure $ Just $ TermBind ann s v rhs
     (TypeBind ann v@(TyVarDecl _ n _) rhs) -> do
         maybeRhs' <- maybeAddTySubst n rhs

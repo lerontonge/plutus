@@ -1,0 +1,1 @@
+multiplyInteger 5 (addInteger 10 2)

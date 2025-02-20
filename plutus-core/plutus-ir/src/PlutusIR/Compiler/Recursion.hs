@@ -12,6 +12,7 @@ import PlutusIR.Compiler.Types
 import PlutusIR.Error
 import PlutusIR.MkPir qualified as PIR
 
+import Control.Lens (view)
 import Control.Monad
 import Control.Monad.Error.Lens
 import Control.Monad.Trans
@@ -20,6 +21,7 @@ import Data.List.NonEmpty hiding (length)
 import Data.Set qualified as Set
 
 import PlutusCore qualified as PLC
+import PlutusCore.Annotation
 import PlutusCore.MkPlc qualified as PLC
 import PlutusCore.Quote
 import PlutusCore.StdLib.Data.Function qualified as Function
@@ -63,7 +65,7 @@ it directly, we would have to provide the type of the *result* term, which we ma
 Here we merely have to provide it with the types of the f_is, which we *do* know.
 -}
 
- -- See note [Recursive lets]
+ -- See Note [Recursive lets]
 -- | Compile a mutually recursive list of var decls bound in a body.
 compileRecTerms
     :: Compiling m e uni fun a
@@ -88,26 +90,30 @@ mkFixpoint bs = do
             Just fun -> pure fun
             Nothing  -> lift $ throwing _Error $ CompilationError (PLC.typeAnn ty) "Recursive values must be of function type"
 
+    inlineFix <- view (ccOpts . coInlineConstants)
+
     -- See Note [Extra definitions while compiling let-bindings]
     let
         arity = fromIntegral $ length funs
         fixByKey = FixBy
         fixNKey = FixpointCombinator arity
+        ann = if inlineFix then annAlwaysInline else annMayInline
 
     let mkFixByDef = do
           name <- liftQuote $ toProgramName fixByKey
           let (fixByTerm, fixByType) = Function.fixByAndType
-          pure (PLC.Def (PLC.VarDecl noProvenance name (noProvenance <$ fixByType)) (noProvenance <$ fixByTerm, Strict), mempty)
-    fixBy <- lookupOrDefineTerm p0 fixByKey mkFixByDef
+          pure (PLC.Def (PLC.VarDecl ann name (noProvenance <$ fixByType)) (noProvenance <$ fixByTerm, Strict), mempty)
 
     let mkFixNDef = do
           name <- liftQuote $ toProgramName fixNKey
-          let ((fixNTerm, fixNType), fixNDeps) =
-                  if arity == 1
-                  then (Function.fixAndType, mempty)
+          ((fixNTerm, fixNType), fixNDeps) <-
+              if arity == 1
+                  then pure (Function.fixAndType, mempty)
                   -- fixN depends on fixBy
-                  else (Function.fixNAndType arity (void fixBy), Set.singleton fixByKey)
-          pure (PLC.Def (PLC.VarDecl noProvenance name (noProvenance <$ fixNType)) (noProvenance <$ fixNTerm, Strict), fixNDeps)
+                  else do
+                      fixBy <- lookupOrDefineTerm p0 fixByKey mkFixByDef
+                      pure (Function.fixNAndType arity (void fixBy), Set.singleton fixByKey)
+          pure (PLC.Def (PLC.VarDecl ann name (noProvenance <$ fixNType)) (noProvenance <$ fixNTerm, Strict), fixNDeps)
     fixN <- lookupOrDefineTerm p0 fixNKey mkFixNDef
 
     liftQuote $ case funs of

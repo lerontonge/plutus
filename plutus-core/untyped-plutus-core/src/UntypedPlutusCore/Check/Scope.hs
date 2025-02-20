@@ -20,13 +20,12 @@ Feeding the result of the debruijnification to this function is expected to pass
 
 On the other hand, because of (2), this pass is
 stricter than the undebruijnification's (indirect)
-scope-checking, see NOTE: [DeBruijn indices of Binders].
+scope-checking, see Note [DeBruijn indices of Binders].
 
 Inlining this function makes a big difference,
 since it will usually be called in a context where all the type variables are known.
 That then means that GHC can optimize go locally in a completely monomorphic setting, which helps a lot.
 -}
-{-# INLINE checkScope #-}
 checkScope :: forall e m name uni fun a.
              (HasIndex name, MonadError e m, AsFreeVariableError e)
            => UPLC.Term name uni fun a
@@ -52,3 +51,4 @@ checkScope = go 0
         Force _ t     -> go lvl t
         Delay _ t     -> go lvl t
         _             -> pure ()
+{-# INLINE checkScope #-}

@@ -10,6 +10,10 @@ module PlutusCore.Evaluation.Machine.ExMemoryUsage
     , singletonRose
     , ExMemoryUsage(..)
     , flattenCostRose
+    , NumBytesCostedAsNumWords(..)
+    , IntegerCostedLiterally(..)
+    , ListCostedByLength(..)
+    , ArrayCostedByLength(..)
     ) where
 
 import PlutusCore.Crypto.BLS12_381.G1 as BLS12_381.G1
@@ -24,10 +28,13 @@ import Data.Functor
 import Data.Proxy
 import Data.SatInt
 import Data.Text qualified as T
+import Data.Vector.Strict (Vector)
+import Data.Vector.Strict qualified as Vector
 import Data.Word
 import GHC.Exts (Int (I#))
 import GHC.Integer
 import GHC.Integer.Logarithms
+import GHC.Natural
 import GHC.Prim
 import Universe
 
@@ -41,7 +48,7 @@ import Universe
  *  It is unsafe to increase the memory usage of a type because that may increase   *
  *  the resource usage of existing scripts beyond the limits set (and paid for)     *
  *  when they were uploaded to the chain, but because our costing functions are all *
- *  monotone) it is safe to decrease memory usage, as long it decreases for *all*   *
+ *  monotone it is safe to decrease memory usage, as long it decreases for *all*    *
  *  possible values of the type.                                                    *
  ************************************************************************************
 -}
@@ -110,7 +117,7 @@ singletonRose cost = CostRose cost []
 
 -- See Note [Global local functions].
 -- This is one way to define the worker. There are many more, see
--- https://github.com/input-output-hk/plutus/pull/5239#discussion_r1151197471
+-- https://github.com/IntersectMBO/plutus/pull/5239#discussion_r1151197471
 -- We chose this one, because it's the simplest (no CPS shenanigans) among the safest (retrieving
 -- the next element takes O(1) time in the worst case).
 --
@@ -155,10 +162,6 @@ instance (ExMemoryUsage a, ExMemoryUsage b) => ExMemoryUsage (a, b) where
     memoryUsage (a, b) = CostRose 1 [memoryUsage a, memoryUsage b]
     {-# INLINE memoryUsage #-}
 
-instance ExMemoryUsage (SomeTypeIn uni) where
-    memoryUsage _ = singletonRose 1
-    {-# INLINE memoryUsage #-}
-
 instance (Closed uni, uni `Everywhere` ExMemoryUsage) => ExMemoryUsage (Some (ValueOf uni)) where
     memoryUsage (Some (ValueOf uni x)) = bring (Proxy @ExMemoryUsage) uni (memoryUsage x)
     {-# INLINE memoryUsage #-}
@@ -167,45 +170,121 @@ instance ExMemoryUsage () where
     memoryUsage () = singletonRose 1
     {-# INLINE memoryUsage #-}
 
+{- | When invoking a built-in function, a value of type `NumBytesCostedAsNumWords`
+   can be used transparently as a built-in Integer but with a different size
+   measure: see Note [Integral types as Integer].  This is required by the
+   `integerToByteString` builtin, which takes an argument `w` specifying the
+   width (in bytes) of the output bytestring (zero-padded to the desired size).
+   The memory consumed by the function is given by `w`, *not* the size of `w`.
+   The `NumBytesCostedAsNumWords` type wraps an Int `w` in a newtype whose
+   `ExMemoryUsage` is equal to the number of eight-byte words required to
+   contain `w` bytes, allowing its costing function to work properly.  We also
+   use this for `replicateByte`.  If this is used to wrap an argument in the
+   denotation of a builtin then it *MUST* also be used to wrap the same argument
+   in the relevant budgeting benchmark.
+-}
+newtype NumBytesCostedAsNumWords = NumBytesCostedAsNumWords { unNumBytesCostedAsNumWords :: Integer }
+instance ExMemoryUsage NumBytesCostedAsNumWords where
+    memoryUsage (NumBytesCostedAsNumWords n) = singletonRose . fromIntegral $ ((n-1) `div` 8) + 1
+    {-# INLINE memoryUsage #-}
+    -- Note that this uses `fromIntegral`, which will narrow large values to
+    -- maxBound::SatInt = 2^63-1.  This shouldn't be a problem for costing because no
+    -- realistic input should be that large; however if you're going to use this then be
+    -- sure to convince yourself that it's safe.
+
+{- | A wrapper for `Integer`s whose "memory usage" for costing purposes is the
+   absolute value of the `Integer`.  This is used for costing built-in functions
+   such as `shiftByteString` and `rotateByteString`, where the cost may depend
+   on the actual value of the shift argument, not its size.  If this is used to
+   wrap an argument in the denotation of a builtin then it *MUST* also be used
+   to wrap the same argument in the relevant budgeting benchmark.
+-}
+newtype IntegerCostedLiterally = IntegerCostedLiterally { unIntegerCostedLiterally :: Integer }
+instance ExMemoryUsage IntegerCostedLiterally where
+    memoryUsage (IntegerCostedLiterally n) = singletonRose . fromIntegral $ abs n
+    {-# INLINE memoryUsage #-}
+    -- Note that this uses `fromIntegral`, which will narrow large values to
+    -- maxBound::SatInt = 2^63-1.  This shouldn't be a problem for costing because no
+    -- realistic input should be that large; however if you're going to use this then be
+    -- sure to convince yourself that it's safe.
+
+{- | A wrappper for lists whose "memory usage" for costing purposes is just the
+   length of the list, ignoring the sizes of the elements. If this is used to
+   wrap an argument in the denotation of a builtin then it *MUST* also be used
+   to wrap the same argument in the relevant budgeting benchmark. -}
+newtype ListCostedByLength a = ListCostedByLength { unListCostedByLength :: [a] }
+instance ExMemoryUsage (ListCostedByLength a) where
+    memoryUsage (ListCostedByLength l) = singletonRose . fromIntegral $ length l
+    {-# INLINE memoryUsage #-}
+    -- Note that this uses `fromIntegral`, which will narrow large values to
+    -- maxBound::SatInt = 2^63-1.  This shouldn't be a problem for costing because no
+    -- realistic input should be that large; however if you're going to use this then be
+    -- sure to convince yourself that it's safe.
+
+newtype ArrayCostedByLength a = ArrayCostedByLength { unArrayCostedByLength :: Vector a }
+instance ExMemoryUsage (ArrayCostedByLength a) where
+    memoryUsage (ArrayCostedByLength l) = singletonRose . fromIntegral $ Vector.length l
+    {-# INLINE memoryUsage #-}
+    -- Note that this uses `fromIntegral`, which will narrow large values to
+    -- maxBound::SatInt = 2^63-1.  This shouldn't be a problem for costing because no
+    -- realistic input should be that large; however if you're going to use this then be
+    -- sure to convince yourself that it's safe.
+
 -- | Calculate a 'CostingInteger' for the given 'Integer'.
 memoryUsageInteger :: Integer -> CostingInteger
 -- integerLog2# is unspecified for 0 (but in practice returns -1)
+-- ^ This changed with GHC 9.2: it now returns 0.  It's probably safest if we
+-- keep this special case for the time being though.
 memoryUsageInteger 0 = 1
 -- Assume 64 Int
 memoryUsageInteger i = fromIntegral $ I# (integerLog2# (abs i) `quotInt#` integerToInt 64) + 1
 -- So that the produced GHC Core doesn't explode in size, we don't win anything by inlining this
 -- function anyway.
-{-# NOINLINE memoryUsageInteger #-}
+{-# OPAQUE memoryUsageInteger #-}
 
 instance ExMemoryUsage Integer where
     memoryUsage i = singletonRose $ memoryUsageInteger i
+    {-# INLINE memoryUsage #-}
+
+instance ExMemoryUsage Natural where
+    -- Same as Integer since we are going via Integer
+    memoryUsage n = memoryUsage $ toInteger n
     {-# INLINE memoryUsage #-}
 
 instance ExMemoryUsage Word8 where
     memoryUsage _ = singletonRose 1
     {-# INLINE memoryUsage #-}
 
-{- Bytestrings: we want things of length 0 to have size 0, 1-8 to have size 1,
-   9-16 to have size 2, etc.  Note that (-1) div 8 == -1, so the code below
-   gives the correct answer for the empty bytestring.  Maybe we should just use
-   1 + (toInteger $ BS.length bs) `div` 8, which would count one extra for
-   things whose sizes are multiples of 8. -}
+{- Bytestrings: we want the empty bytestring and bytestrings of length 1-8 to have
+   size 1, bytestrings of length 9-16 to have size 2, etc.  Note that (-1)
+   `quot` 8 == 0, so the code below gives the correct answer for the empty
+   bytestring.  -}
 instance ExMemoryUsage BS.ByteString where
-    -- Don't use `div` here!  That gives 1 instead of 0 for n=0.
+    -- Don't use `div` here!  That gives 0 instead of 1 for the empty bytestring.
     memoryUsage bs = singletonRose . unsafeToSatInt $ ((n - 1) `quot` 8) + 1 where
         n = BS.length bs
     {-# INLINE memoryUsage #-}
 
 instance ExMemoryUsage T.Text where
-    -- This is slow and inaccurate, but matches the version that was originally deployed.
-    -- We may try and improve this in future so long as the new version matches this exactly.
-    memoryUsage text = memoryUsage $ T.unpack text
+    -- This says that @Text@ allocates 1 'CostingInteger' worth of memory (i.e. 8 bytes) per
+    -- character, which is a conservative overestimate (i.e. is safe) regardless of whether @Text@
+    -- is UTF16-based (like it used to when we implemented this instance) or UTF8-based (like it is
+    -- now).
+    --
+    -- Note that the @ExMemoryUsage Char@ instance does not affect this one, this is for performance
+    -- reasons, since @T.length@ is O(1) unlike @sum . map (memoryUsage @Char) . T.unpack@. We used
+    -- to have the latter, but changed it to the former for easy performance gains.
+    --
+    -- We may want to make this a bit less of an overestimate in future just not to overcharge
+    -- users.
+    memoryUsage = singletonRose . fromIntegral . T.length
     {-# INLINE memoryUsage #-}
 
 instance ExMemoryUsage Int where
     memoryUsage _ = singletonRose 1
     {-# INLINE memoryUsage #-}
 
+-- If you ever change this, also change @ExMemoryUsage T.Text@.
 instance ExMemoryUsage Char where
     memoryUsage _ = singletonRose 1
     {-# INLINE memoryUsage #-}
@@ -214,8 +293,34 @@ instance ExMemoryUsage Bool where
     memoryUsage _ = singletonRose 1
     {-# INLINE memoryUsage #-}
 
+-- | Add two 'CostRose's. We don't make this into a 'Semigroup' instance, because there exist
+-- different ways to add two 'CostRose's (e.g. we could optimize the case when one of the roses
+-- contains only one element or we can make the function lazy in the second argument). Here we chose
+-- the version that is most efficient when the first argument is a statically known constant (we
+-- didn't do any benchmarking though, so it may not be the most efficient one) as we need this
+-- below.
+addConstantRose :: CostRose -> CostRose -> CostRose
+addConstantRose (CostRose cost1 forest1) (CostRose cost2 forest2) =
+    CostRose (cost1 + cost2) (forest1 ++ forest2)
+{-# INLINE addConstantRose #-}
+
 instance ExMemoryUsage a => ExMemoryUsage [a] where
-    memoryUsage = CostRose 0 . map memoryUsage
+    -- sizeof([a]) = (1 + 3N) words + N * sizeof(v)
+    memoryUsage = CostRose nilCost . map (addConstantRose consRose . memoryUsage) where
+        -- As per https://wiki.haskell.org/GHC/Memory_Footprint
+        nilCost = 1
+        {-# INLINE nilCost #-}
+        consRose = singletonRose 3
+        {-# INLINE consRose #-}
+    {-# INLINE memoryUsage #-}
+
+instance ExMemoryUsage a => ExMemoryUsage (Vector a) where
+    -- sizeof(Vector v) = (7 + N) words + N * sizeof(v)
+    memoryUsage v = CostRose arrayCost [ memoryUsage a | a <- Vector.toList v ]
+      where
+        arrayCost :: SatInt
+        arrayCost = 7 + fromIntegral (Vector.length v)
+        {-# INLINE arrayCost #-}
     {-# INLINE memoryUsage #-}
 
 {- Another naive traversal for size.  This accounts for the number of nodes in
@@ -236,28 +341,16 @@ instance ExMemoryUsage a => ExMemoryUsage [a] where
 -}
 instance ExMemoryUsage Data where
     memoryUsage = sizeData where
-        -- The cost of each node of the 'Data' object (in addition to the cost of its content).
-        nodeMem = singletonRose 4
-        {-# INLINE nodeMem #-}
+        dataNodeRose = singletonRose 4
+        {-# INLINE dataNodeRose #-}
 
-        -- Add two 'CostRose's. We don't make this into a 'Semigroup' instance, because there exist
-        -- different ways to add two 'CostRose's (e.g. we could optimize the case when one of the
-        -- roses contains only one element or we can make the function lazy in the second argument).
-        -- Here we chose the version that is most efficient when the first argument is @nodeMem@ (we
-        -- didn't do any benchmarking though, so it may not be the most efficient one) -- we don't
-        -- have any other cases.
-        combine (CostRose cost1 forest1) (CostRose cost2 forest2) =
-            CostRose (cost1 + cost2) (forest1 ++ forest2)
-        {-# INLINE combine #-}
-
-        sizeData d = combine nodeMem $ case d of
-            -- TODO: include the size of the tag, but not just yet.  See SCP-3677.
+        sizeData d = addConstantRose dataNodeRose $ case d of
+            -- TODO: include the size of the tag, but not just yet. See PLT-1176.
             Constr _ l -> CostRose 0 $ l <&> sizeData
             Map l      -> CostRose 0 $ l >>= \(d1, d2) -> [d1, d2] <&> sizeData
             List l     -> CostRose 0 $ l <&> sizeData
             I n        -> memoryUsage n
             B b        -> memoryUsage b
-
 
 {- Note [Costing constant-size types]
 The memory usage of each of the BLS12-381 types is constant, so we may be able
@@ -267,25 +360,25 @@ we make sure by defining a top level function for each of the size measures and
 getting the memoryUsage instances to call those.
 -}
 
-{-# NOINLINE g1ElementCost #-}
 g1ElementCost :: CostRose
 g1ElementCost = singletonRose . unsafeToSatInt $ BLS12_381.G1.memSizeBytes `div` 8
+{-# OPAQUE g1ElementCost #-}
 
 instance ExMemoryUsage BLS12_381.G1.Element where
     memoryUsage _ = g1ElementCost
     -- Should be 18
 
-{-# NOINLINE g2ElementCost #-}
 g2ElementCost :: CostRose
 g2ElementCost = singletonRose . unsafeToSatInt $ BLS12_381.G2.memSizeBytes `div` 8
+{-# OPAQUE g2ElementCost #-}
 
 instance ExMemoryUsage BLS12_381.G2.Element where
     memoryUsage _ = g2ElementCost
     -- Should be 36
 
-{-# NOINLINE mlResultElementCost #-}
 mlResultElementCost :: CostRose
 mlResultElementCost = singletonRose . unsafeToSatInt $ BLS12_381.Pairing.mlResultMemSizeBytes `div` 8
+{-# OPAQUE mlResultElementCost #-}
 
 instance ExMemoryUsage BLS12_381.Pairing.MlResult where
     memoryUsage _ = mlResultElementCost

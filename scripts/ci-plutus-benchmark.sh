@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 # This script runs the given benchmark and compares the results against origin/master.
 #
 # USAGE: 
@@ -9,11 +11,12 @@
 # `BENCHMARK_NAME=nofib ./scripts/ci-plutus-benchmark.sh`
 #
 # NOTES:
-# The `cabal update` command below is neccessary because while the whole script is executed inside
+# The `cabal update` command below is necessary because while the whole script is executed inside
 # a nix shell, this environment does not provide the hackage record inside .cabal and we have to 
 # fetch/build this each time since we want to run this in a clean environment.
 # The `jq` invocation below is necessary because we have to POST the PR comment as JSON data 
 # (see the curl command) meaning the script output has to be escaped first before we can insert it.
+# For consistent results, the benchmarks should be run on a CPU with a fixed frequency or a performance governor.
 
 set -e
 
@@ -34,7 +37,13 @@ else
    git checkout "$PR_BRANCH"
 fi
 
-PR_BRANCH_REF=$(git rev-parse --short HEAD)
+PR_BRANCH_REF="$(git rev-parse --short HEAD)"
+
+if [ -z "$(git merge-base HEAD origin/master)" ]; then
+   echo "The command 'git merge-base HEAD origin/master' returned an empty string."
+   echo "You probably need to 'git rebase --origin master' from your branch first."
+   exit 1
+fi
 
 echo "[ci-plutus-benchmark]: Processing benchmark comparison for benchmark '$BENCHMARK_NAME' on PR $PR_NUMBER"
 
@@ -48,17 +57,17 @@ echo "[ci-plutus-benchmark]: Clearing caches with cabal clean ..."
 cabal clean
 
 echo "[ci-plutus-benchmark]: Running benchmark for PR branch at $PR_BRANCH_REF ..."
-2>&1 cabal bench $BENCHMARK_NAME | tee bench-PR.log
+2>&1 cabal bench "$BENCHMARK_NAME" | tee bench-PR.log
 
 echo "[ci-plutus-benchmark]: Switching branches ..."
-git checkout master
+git checkout "$(git merge-base HEAD origin/master)"
 BASE_BRANCH_REF=$(git rev-parse --short HEAD)
 
 echo "[ci-plutus-benchmark]: Clearing caches with cabal clean ..."
 cabal clean
 
 echo "[ci-plutus-benchmark]: Running benchmark for base branch at $BASE_BRANCH_REF ..."
-2>&1 cabal bench $BENCHMARK_NAME | tee bench-base.log 
+2>&1 cabal bench "$BENCHMARK_NAME" | tee bench-base.log 
 git checkout "$PR_BRANCH_REF"  # .. so we use the most recent version of the comparison script
 
 echo "[ci-plutus-benchmark]: Comparing results ..."
@@ -72,6 +81,10 @@ Comparing benchmark results of '$BENCHMARK_NAME' on '$BASE_BRANCH_REF' (base) an
 <summary>Results table</summary>
 
 EOF
-./plutus-benchmark/bench-compare-markdown bench-base.log bench-PR.log "${BASE_BRANCH_REF:0:7}" "${PR_BRANCH_REF:0:7}"
-echo -e "</details>"
+./plutus-benchmark/bench-compare-markdown bench-base.log bench-PR.log "${BASE_BRANCH_REF:0:7}" "${PR_BRANCH_REF:0:7}" |
+    awk -v hdr1="${BASE_BRANCH_REF:0:7}" -v hdr2="${PR_BRANCH_REF:0:7}" '
+     /^[| \t]*$/ {print "</details>"; next}
+     /TOTAL/ {printf ("\n| | %s | %s | Change |\n| :------| :------: | :------: | :------: |\n", hdr1, hdr2)}
+     {print}' 
+# ^ This puts </details> after the individual results and puts the TOTAL line in a small table on its own.
 } > bench-compare-result.log

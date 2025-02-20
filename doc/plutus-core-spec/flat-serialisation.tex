@@ -1,4 +1,4 @@
-\section{Serialising Plutus Core Terms and Programs Using the \texttt{flat} Format}
+\chapter{Serialising Plutus Core Terms and Programs Using the \texttt{flat} Format}
 \label{appendix:flat-serialisation}
 We use the \texttt{flat} format \cite{flat} to serialise Plutus Core
 terms, and we regard this format as being the definitive concrete representation
@@ -25,15 +25,15 @@ by about 35\% (without using compression).
 
 
 
-\subsection{Encoding and decoding}
-Let $\Bits = \{\bits{0},\bits{1}\}^*$, the set of all finite sequences of
-bits.  For brevity we write a sequence of bits in the form $b_{n-1} \cdots b_0$
-instead of $[b_{n-1}, \ldots, b_0]$: thus $\bits{011001}$ instead of $[\bits{0},
+\section{Encoding and decoding}
+Firstly recall some notation from Section~\ref{sec:notation}.  The set of all
+finite sequences of bits is denoted by $\Bits = \{\bits{0},\bits{1}\}^*$.  For
+brevity we write a sequence of bits in the form $b_{n-1} \cdots b_0$ instead of
+$[b_{n-1}, \ldots, b_0]$: thus $\bits{011001}$ instead of $[\bits{0},
   \bits{1},\bits{1},\bits{0},\bits{0},\bits{1}])$.  We denote the empty sequence
 by $\epsilon$, and use $\length(s)$ to denote the length of a sequence of bits,
 and $\cdot$ to denote concatenation (or prepending or appending a single bit to
-a sequence of bits).%
-\nomenclature[As]{$\Bits$}{The set of strings of bits}
+a sequence of bits).% \nomenclature[As]{$\Bits$}{The set of strings of bits}
 
 \medskip
 \noindent Similarly to the CBOR encoding for \texttt{data} described in
@@ -42,12 +42,12 @@ by defining families of encoding functions (or \textit{encoders})
 $$
 \E_X : \Bits \times X \rightarrow \Bits
 $$%
-\nomenclature[HF]{$\E_X$}{Flat encoder}
+\nomenclature[IF]{$\E_X$}{Flat encoder}
 and (partial) decoding functions (or \textit{decoders})
 $$
 \D_X : \Bits \rightharpoonup \Bits \times X
 $$%
-\nomenclature[HF]{$\D_X$}{Flat decoder}
+\nomenclature[IF]{$\D_X$}{Flat decoder}
 
 \noindent for various sets $X$, such as the set $\Z$ of integers and the set of
 all Plutus Core terms.  The encoding function $\E_X$ takes a sequence $s \in
@@ -76,7 +76,7 @@ composed, and these are often introduced by a condition of the form ``if
 $\D_X(s) = x$''.  Conditions like this should be read as implicitly saying that
 if the decoder $\D_X$ fails then the whole decoding process fails.
 
-\subsubsection{Padding}
+\subsection{Padding}
 The encoding functions mentioned above produce sequences of \textit{bits}, but
 we sometimes need sequences of \textit{bytes}.  To this end we introduce a
 functions $\pad: \Bits \rightarrow \Bits$ which adds a sequence of $\bits{0}$s
@@ -86,7 +86,7 @@ then $\pad$ still adds an extra byte of padding; $\pad$ is used both for
 internal alignment (for example, to make sure that the contents of a bytestring
 are aligned on byte boundaries) and at the end of a complete encoding of a
 Plutus Core program to to make the length a multiple of 8 bits.
-Symbolically, 
+Symbolically,
 $$
 \pad(s)  = s \cdot \pp{k} \quad \text{if $\length(s) = 8n+k$ with $n,k \in \N$ and $0 \leq k \leq 7$}
 $$
@@ -111,9 +111,9 @@ $$
 \noindent This can fail if the padding is not of the expected form or if the input is
 the empty sequence $\epsilon$.
 
-\subsection{Basic \texttt{flat} encodings}
+\section{Basic \texttt{flat} encodings}
 \label{sec:basic-flat-encodings}
-\subsubsection{Fixed-width natural numbers}
+\subsection{Fixed-width natural numbers}
 We often wish to encode and decode natural numbers which fit into some fixed
 number of bits, and we do this simply by encoding them as their binary expansion
 (most significant bit first), adding leading zeros if necessary.  More precisely
@@ -139,7 +139,7 @@ families of encoders $\E_1, \E_2, \E_3, \ldots$ and and decoders $\D_1, \D_2,
 \D_3\ldots$.
 
 
-\subsubsection{Lists}
+\subsection{Lists}
 Suppose that we have a set $X$ for which we have defined an encoder $\E_X$ and a
 decoder $\D_X$; we define an encoder $\Elist_X$ which encodes lists of elements
 of $X$ by emitting the encodings of the elements of the list, each preceded by a
@@ -155,7 +155,7 @@ $\bits{1}$ bit, then emitting a $\bits{0}$ bit to mark the end of the list.
 \Dlist_X(\bits{1} \cdot s) &= (s'', x \cdot l) \quad \text{if $D_X(s) = (s', x)$ and $\Dlist_X(s') = (s'', l).$}
 \end{align*}
 
-\subsubsection{Natural numbers}
+\subsection{Natural numbers}
 We encode natural numbers by splitting their binary representations into
 sequences of 7-bit blocks, then emitting these as a list with the \textbf{least
   significant block first}:
@@ -169,7 +169,7 @@ $$
 \D_{\N}(s) = (s', \sum_{i=0}^{n-1}k_i2^{7i}) \quad \text{if $\Dlist_7(s) = (s', [k_0, \ldots, k_{n-1}])$}.
 $$
 
-\subsubsection{Integers}
+\subsection{Integers}
 Signed integers are encoded by converting them to natural numbers using the
 zigzag encoding ($0 \mapsto 0, -1 \mapsto 1, 1 \mapsto 2, -2 \mapsto 3, 2
 \mapsto 4, \ldots$) and then encoding the result using $\E_{\N}$:
@@ -189,7 +189,7 @@ $$
 \end{cases} \quad\text{if $\D_{\N}(s) = (s', n)$}.
 $$
 
-\subsubsection{Bytestrings}  Bytestrings are encoded by dividing them into
+\subsection{Bytestrings}  Bytestrings are encoded by dividing them into
 nonempty blocks of up to 255 bytes and emitting each block in sequence.  Each
 block is preceded by a single unsigned byte containing its length, and the end
 of the encoding is marked by a zero-length block (so the empty bytestring is
@@ -209,7 +209,7 @@ E_C ([b_1, \ldots, b_n]) = \E_8(n) \cdot \E_8(b_1) \cdot \cdots \cdot \E_8(b_n).
 $$
 
 \noindent
-We define an encoder $\E_{C^*}$ for lists of chunks by 
+We define an encoder $\E_{C^*}$ for lists of chunks by
 $$
 \E_{C^*} (s, [c_1, \ldots, c_n]) = s \cdot E_C(c_1) \cdot \cdots \cdot E_C(c_n) \cdot \bits{00000000}.
 $$
@@ -289,7 +289,7 @@ $$
 \D_{\B^*} (s) = \D_{C^*}(\unpad(s)).
 $$
 
-\subsubsection{Strings}
+\subsection{Strings}
 We have defined values of the \texttt{string} type to be sequences of Unicode
 characters.  As mentioned earlier we do not specify any particular internal
 representation of Unicode characters, but for serialisation we use the UTF-8
@@ -306,14 +306,14 @@ $$
 
 \noindent
 where $\utfeight$ and $\unutfeight$ are the UTF8 encoding and decoding functions
-mentioned in Appendix~\ref{appendix:default-builtins-alonzo}. Recall that $\unutfeight$
+mentioned in Section~\ref{sec:default-builtins-1}. Recall that $\unutfeight$
 is partial (not all bytestrings represent valid Unicode sequences), so
 $\D_{\U^*}$ may fail if the input is invalid.
 
 
-\subsection{Encoding and decoding Plutus Core}
+\section{Encoding and decoding Plutus Core}
 
-\subsubsection{Programs}
+\subsection{Programs}
 A program is encoded by encoding the three components of the version number in
 sequence then encoding the body, and possibly adding some padding to ensure that
 the total number of bits in the output is a multiple of 8 (and hence the output
@@ -338,9 +338,9 @@ $$
 \end{cases}
 $$
 
-\noindent 
+\noindent
 
-\subsubsection{Terms}
+\subsection{Terms}
 Plutus Core terms are encoded by emitting a 4-bit tag identifying the type of
 the term (see Table~\ref{table:term-tags}; recall that \texttt{[]} denotes
 application) then emitting the encodings for any subterms.  We currently only
@@ -412,7 +412,11 @@ does not happen here, but does in some later decoders.
   \Dterm(\bits{1001} \cdot s)  &= (s', \Kase{u}{l}) &&\quad \text{if } \Dterm(s) = (s', u) &&\ \text{and}\ \Dlist_{\mathsf{term}}(s') = (s'', l)
 \end{alignat*}
 
-\subsubsection{Built-in types}
+\paragraph{NOTE.} The decoder $\Dterm$ should fail if we are decoding a program
+with a version less than 1.1.0 and an input of the form $\bits{1000} \cdot s$ or
+$\bits{1001} \cdot s$ is encountered.
+
+\subsection{Built-in types}
 Constants from built-in types are essentially encoded by emitting a sequence of
 4-bit tags representing the constant's type and then emitting the encoding of
 the constant itself.  However the encoding of types is somewhat complex because
@@ -451,8 +455,8 @@ tags for the basic types together with a tag for a type application operator.
 
 \noindent We define auxiliary functions $\etype: \Uni \rightarrow \N^*$ and
 $\dtype: \N^* \rightharpoonup \N^* \times \Uni$ ($\dtype$ is partial and $\Uni$
-denotes the universe of types defined in Appendices~\ref{appendix:default-builtins-alonzo},
-\ref{appendix:default-builtins-vasil}, and~\ref{appendix:default-builtins-future}).
+denotes the universe of types defined in Sections~\ref{sec:default-builtins-1},
+\ref{sec:default-builtins-2}, and~\ref{sec:default-builtins-3}).
 
 \begin{alignat*}{2}
   &\etype(\ty{integer})      &&= [0]  \\
@@ -472,7 +476,7 @@ denotes the universe of types defined in Appendices~\ref{appendix:default-builti
  &\dtype(3 \cdot l) &&= (l, \ty{unit})       \\
  &\dtype(4 \cdot l) &&= (l, \ty{bool})       \\
  &\dtype([7,5] \cdot l) &&= (l', \listOf{t}) &&\quad \text{if $\dtype(l) = (l', t)$}\\
- &\dtype([7,7,6] \cdot l) &&= (l'', \pairOf{t_1}{t_2}) 
+ &\dtype([7,7,6] \cdot l) &&= (l'', \pairOf{t_1}{t_2})
   &&\ \begin{cases}
       \text{if} & \dtype(l) = (l', t_1)\\
       \text{and} & \dtype(l') = (l'', t_2)
@@ -492,7 +496,8 @@ $$
 \Dtype(s) = (s', t) \quad \text{if $\Dlist_4(s) = (s', l)$ and $\dtype(l) = ([], t)$}.
 $$
 
-\subsubsection{Constants}
+\subsection{Constants}
+\label{sec:flat-constants}
 Values of built-in types can mostly be encoded quite simply by using encoders
 already defined.  Note that the unit value \texttt{(con unit ())} does not have
 an explicit encoding: the type has only one possible value, so there is no need
@@ -504,16 +509,16 @@ then using $\E_{\B^*}$.  The decoding process is the opposite of this: a
 bytestring is obtained using $\D_{\B^*}$ and this is then decoded from CBOR
 using $\dData$ to obtain a $\ty{data}$ object.
 
-The $\ty{bls12\_381\_G1\_element}$ and $\ty{bls12\_381\_G2\_element}$ types are
-serialised by converting to byestrings using the $\compress_{G_1}$ and
-$\compress_{G_2}$ functions defined in
-Section~\ref{sec:future-built-in-functions}, and decoding is similarly performed
-via bytestrings using the $\uncompress$ functions.  \textbf{We do not provide
-serialisation and deserialisation for constants of the
-$\ty{bls12\_381\_mlresult}$ type}; we have specified a tag for this type, but if
-that tag is encountered during deserialisation then deserialisation fails and
-any subsequent input is ingored.
-
+We do not provide serialisation and deserialisation for constants of type
+$\ty{bls12\_381\_G1\_element}$, $\ty{bls12\_381\_G2\_element}$, or
+$\ty{bls12\_381\_mlresult}$.  We have specified tags for these types, but if one
+of these tags is encountered during deserialisation then deserialisation fails
+and any subsequent input is ignored.  Note however that constants of the first
+two types can be serialised by using the compression functions defined in
+Section~\ref{sec:bls-builtins-4} and serialising the resulting bytestrings.
+Decoding can similarly be performed indirectly by using
+\texttt{bls12\_381\_G1\_uncompress} and \texttt{bls12\_381\_G2\_uncompress} on
+bytestring constants during program execution.
 
 \begin{alignat*}{2}
   & \Econstant{\ty{integer}}(s,n)                  &&= \E_{\Z}(s, n) \\
@@ -524,9 +529,7 @@ any subsequent input is ingored.
   & \Econstant{\ty{bool}}(s, \texttt{True})        &&= s \cdot \bits{1}\\
   & \Econstant{\listOf{\tn}}(s,l)                  &&= \Elist^{\tn}_{\mathsf{constant}}(s, l) \\
   & \Econstant{\pairOf{\tn_1}{\tn_2}}(s,(c_1,c_2))  &&= \Econstant{\tn_2}(\Econstant{\tn_1}(s, c_1), c_2)\\
-  & \Econstant{\ty{data}}(s,d)                     &&= \E_{\B^*}(s, \eData(d))\\
-  & \Econstant{\ty{bls12\_381\_G1\_element}}(s,e)  &&= \E_{\B^*}(s, \compress_{G_1}(e))\\
-  & \Econstant{\ty{bls12\_381\_G2\_element}}(s,e)  &&= \E_{\B^*}(s, \compress_{G_2}(e)).
+  & \Econstant{\ty{data}}(s,d)                     &&= \E_{\B^*}(s, \eData(d))
 \end{alignat*}
 
 \begin{alignat*}{3}
@@ -537,22 +540,20 @@ any subsequent input is ingored.
   &\dConstant{\ty{bool}}(\bits{0} \cdot s)  &&= (s, \texttt{False}) \\
   &\dConstant{\ty{bool}}(\bits{1} \cdot s)  &&= (s, \texttt{True}) \\
   &\dConstant{\listOf{\tn}}(s)              &&= \Dlist^{\tn}_{\mathsf{constant}}(s, l) \\
-  &\dConstant{\pairOf{\tn_1}{\tn_2}}(s)     &&= (s'', (c_1, c_2)) 
+  &\dConstant{\pairOf{\tn_1}{\tn_2}}(s)     &&= (s'', (c_1, c_2))
   && \begin{cases}
        \text{if}  & \dConstant{\tn_1}(s) = (s', c_1) \\
        \text{and} & \dConstant{\tn_2}(s') = (s'', c_2)
      \end{cases}\\
   &\dConstant{\ty{data}}(s)                  &&= (s', d) &&
                                            \text{if $\D_{\B*}(s) = (s', t)$
-                                            and $\dData(t) = (t', d)$ for some $t'$}\\
-  & \dConstant{\ty{bls12\_381\_G1\_element}}(s)  &&= (s',e) && \text{if $\D_{\B^*}(s) = (s',b)$ and $\uncompress_{G_1}(b)=e$}\\
-  & \dConstant{\ty{bls12\_381\_G2\_element}}(s)  &&= (s',e) && \text{if $\D_{\B^*}(s) = (s',b)$ and $\uncompress_{G_2}(b)=e$}.
+                                            and $\dData(t) = (t', d)$ for some $t'$}
 \end{alignat*}
 
-\subsubsection{Built-in functions}
+\subsection{Built-in functions}
 Built-in functions are represented by seven-bit integer tags and encoded and
 decoded using $\E_7$ and $\D_7$.  The tags are specified in
-Tables~\ref{table:builtin-tags-alonzo}, \ref{table:builtin-tags-vasil}, and~\ref{table:builtin-tags-future}.  We
+Tables~\ref{table:builtin-tags-batch-1}--\ref{table:builtin-tags-batch-6}.  We
 assume that there are (partial) functions $\Tag$ and $\unTag$ which convert back
 and forth between builtin names and their tags.
 
@@ -587,17 +588,17 @@ and forth between builtin names and their tags.
    \TT{lessThanByteString}       &    $\bits{0010000}$  &  16    &        \TT{unConstrData}             &    $\bits{0101010}$  &  42 \\
    \TT{lessThanEqualsByteString} &    $\bits{0010001}$  &  17    &        \TT{unMapData}                &    $\bits{0101011}$  &  43 \\
    \TT{sha2\_256}                &    $\bits{0010010}$  &  18    &        \TT{unListData}               &    $\bits{0101100}$  &  44 \\
-   \TT{sha3\_256}                &    $\bits{0010011}$  &  19    &        \TT{unIData}                  &    $\bits{0101101}$  &  45 \\       
-   \TT{blake2b\_256}             &    $\bits{0010100}$  &  20    &        \TT{unBData}                  &    $\bits{0101110}$  &  46 \\       
-   \TT{verifyEd25519Signature}   &    $\bits{0010101}$  &  21    &        \TT{equalsData}               &    $\bits{0101111}$  &  47 \\       
+   \TT{sha3\_256}                &    $\bits{0010011}$  &  19    &        \TT{unIData}                  &    $\bits{0101101}$  &  45 \\
+   \TT{blake2b\_256}             &    $\bits{0010100}$  &  20    &        \TT{unBData}                  &    $\bits{0101110}$  &  46 \\
+   \TT{verifyEd25519Signature}   &    $\bits{0010101}$  &  21    &        \TT{equalsData}               &    $\bits{0101111}$  &  47 \\
    \TT{appendString}             &    $\bits{0010110}$  &  22    &        \TT{mkPairData}               &    $\bits{0110000}$  &  48 \\
    \TT{equalsString}             &    $\bits{0010111}$  &  23    &        \TT{mkNilData}                &    $\bits{0110001}$  &  49 \\
    \TT{encodeUtf8}               &    $\bits{0011000}$  &  24    &        \TT{mkNilPairData}            &    $\bits{0110010}$  &  50 \\
    \TT{decodeUtf8}               &    $\bits{0011001}$  &  25    & & & \\
 \hline
 \end{tabular}
-\caption{Tags for Alonzo builtins}
-\label{table:builtin-tags-alonzo}
+\caption{Tags for built-in functions (batch 1)}
+\label{table:builtin-tags-batch-1}
 \end{table}
 
 \begin{table}[H]
@@ -608,12 +609,24 @@ and forth between builtin names and their tags.
   Builtin & Binary & Decimal\\
   \hline
  \TT{serialiseData}                   & $\bits{0110011}$  & 51 \\
+\hline
+\end{tabular}
+\caption{Tags for built-in functions (batch 2)}
+\label{table:builtin-tags-batch-2}
+\end{table}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|c|c|}
+  \hline
+  \Strut
+  Builtin & Binary & Decimal\\
+  \hline
  \TT{verifyEcdsaSecp256k1Signature}   & $\bits{0110100}$  & 52 \\
  \TT{verifySchnorrSecp256k1Signature} & $\bits{0110101}$  & 53 \\
 \hline
 \end{tabular}
-\caption{Extra tags for Vasil builtins}
-\label{table:builtin-tags-vasil}
+\caption{Tags for built-in functions (batch 3)}
 \end{table}
 
 \begin{table}[H]
@@ -640,18 +653,59 @@ and forth between builtin names and their tags.
     \TT{bls12\_381\_millerLoop}      & $\bits{1000100}$  & 68 \\
     \TT{bls12\_381\_mulMlResult}     & $\bits{1000101}$  & 69 \\
     \TT{bls12\_381\_finalVerify}     & $\bits{1000110}$  & 70 \\
+    \TT{keccak\_256}                 & $\bits{1000111}$  & 71 \\
+    \TT{blake2b\_224}                & $\bits{1001000}$  & 72 \\
+    \TT{integerToByteString}         & $\bits{1001000}$  & 73 \\
+    \TT{byteStringToInteger}         & $\bits{1001000}$  & 74 \\
 \hline
 \end{tabular}
-\caption{Extra tags for future builtins}
-\label{table:builtin-tags-future}
+\caption{Tags for built-in functions (batch 4)}
+\label{table:builtin-tags-batch-4}
 \end{table}
 
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|c|c|}
+  \hline
+  \Strut
+  Builtin & Binary & Decimal\\
+  \hline
+    \TT{andByteString}               & $\bits{1001011}$  & 75 \\
+    \TT{orByteString}                & $\bits{1001100}$  & 76 \\
+    \TT{xorByteString}               & $\bits{1001101}$  & 77 \\
+    \TT{complementByteString}        & $\bits{1001110}$  & 78 \\
+    \TT{readBit}                     & $\bits{1001111}$  & 79 \\
+    \TT{writeBits}                   & $\bits{1010000}$  & 80 \\
+    \TT{replicateByte}               & $\bits{1010001}$  & 81 \\
+    \TT{shiftByteString}             & $\bits{1010010}$  & 82 \\
+    \TT{rotateByteString}            & $\bits{1010011}$  & 83 \\
+    \TT{countSetBits}                & $\bits{1010100}$  & 84 \\
+    \TT{findFirstSetBit}             & $\bits{1010101}$  & 85 \\
+    \TT{ripemd\_160}                 & $\bits{1010110}$  & 86 \\
+\hline
+\end{tabular}
+\caption{Tags for built-in functions (batch 5)}
+\label{table:builtin-tags-batch-5}
+\end{table}
 
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|c|c|}
+  \hline
+  \Strut
+  Builtin & Binary & Decimal\\
+  \hline
+ \TT{expModInteger}   & $\bits{1010111}$  & 87 \\
+\hline
+\end{tabular}
+\caption{Tags for built-in functions (batch 6)}
+\label{table:builtin-tags-batch-6}
+\end{table}
 
-\subsubsection{Variable names}
+\subsection{Variable names}
 Variable names are encoded and decoded using the $\Ename$ and $\Dname$
 functions, and variables bound in \texttt{lam} expressions are encoded and
-decoded by the $\Ebinder$ and $\Dbinder$ functions.  
+decoded by the $\Ebinder$ and $\Dbinder$ functions.
 
 \paragraph{De Bruijn indices.}
 We use serialised de Bruijn-indexed terms for script transmission because
@@ -687,16 +741,16 @@ on the method used to represent variable names it may also be necessary to check
 during deserialisation the more general requirement that variables are
 well-scoped, but this problem will not arise if de Bruijn indices are used.
 
-\subsection{Cardano-specific serialisation issues}
+\section{Cardano-specific serialisation issues}
 \label{sec:cardano-issues}
-\subsubsection{Scope checking}
+\subsection{Scope checking}
 To execute a Plutus Core program on the blockchain it will be necessary to
 deserialise it to some in-memory representation, and during or immediately after
 deserialisation it should be checked that the body of the program is a closed
 term (see the requirement in Section~\ref{sec:grammar-notes}); if this is not
 the case then evaluation should fail immediately.
 
-\subsubsection{CBOR wrapping}
+\subsection{CBOR wrapping}
 Plutus Core programs are not stored on the Cardano chain directly as
 \texttt{flat} bytestrings; for consistency with other objects used on the chain,
 the \texttt{flat} bytestrings are in fact wrapped in a CBOR encoding.  This
@@ -708,7 +762,7 @@ confusion.
 %% exactly 64 bytes long: then the data would be interrupted by 0x40 ('@') every
 %% 64 bytes.
 
-\subsection{Example}
+\section{Example}
 Consider the program
 \begin{verbatim}
 (program 5.0.2
@@ -747,7 +801,7 @@ sequences.
 % remove it if the page breaks change.
 \begin{figure}[H]
   \centering
-  {\small  
+  {\small
         \begin{Verbatim}[commandchars=\\\{\}]
              00000101 : \textrm{Final integer chunk: \texttt{0000101} \arrow 5}
              00000000 : \textrm{Final integer chunk: \texttt{0000000} \arrow 0}
@@ -791,4 +845,3 @@ sequences.
       \caption{\texttt{flat} encoding of \texttt{index.uplc}}
       \label{fig:index-bytestring-example}
   \end{figure}
-

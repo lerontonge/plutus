@@ -1,0 +1,7 @@
+let
+  unit = all a. a -> a
+in
+let
+  SomeType = all a. a -> a
+in
+\(arg : SomeType) -> error {unit}

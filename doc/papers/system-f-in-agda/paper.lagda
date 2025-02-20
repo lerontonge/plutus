@@ -4113,7 +4113,7 @@ TwoPlusTwoᶜ = Twoᶜ ·⋆ ℕᶜ · Twoᶜ · Succᶜ
 \end{code}
 
 \noindent Using the full facilities of System $F_{\omega\mu}$ we can
-define natural numbers as Scott Numerals \cite{plotkin}. We the $Z$
+define natural numbers as Scott Numerals \cite{plotkin}. We use the $Z$
 combinator instead of the $Y$ combinator as it works for both lazy and
 strict languages.
 
@@ -4267,7 +4267,7 @@ in the course of writing this paper.
 Some additional proofs added after publication and not shown in the paper
 
 \begin{code}
-open import Relation.Nullary
+open import Relation.Nullary hiding (det)
 
 -- a value can make no progress
 

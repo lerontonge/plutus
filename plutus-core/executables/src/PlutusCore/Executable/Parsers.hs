@@ -4,6 +4,7 @@
 
 module PlutusCore.Executable.Parsers where
 
+import PlutusCore.Default (BuiltinSemanticsVariant (..), DefaultFun)
 import PlutusCore.Executable.Types
 
 import Options.Applicative
@@ -81,28 +82,6 @@ outputformat = option (maybeReader formatReader)
   <> showDefault
   <> help ("Output format: " ++ formatHelp))
 
--- -x -> run 100 times and print the mean time
-timing1 :: Parser TimingMode
-timing1 = flag NoTiming (Timing 100)
-  (  short 'x'
-  <> help "Report mean execution time of program over 100 repetitions"
-  )
-
--- -X N -> run N times and print the mean time
-timing2 :: Parser TimingMode
-timing2 = Timing <$> option auto
-  (  long "time-execution"
-  <> short 'X'
-  <> metavar "N"
-  <> help ("Report mean execution time of program over N repetitions. "
-  <> " Use a large value of N if possible to get accurate results.")
-  )
-
--- We really do need two separate parsers here.
--- See https://github.com/pcapriotti/optparse-applicative/issues/194#issuecomment-205103230
-timingmode :: Parser TimingMode
-timingmode = timing1 <|> timing2
-
 tracemode :: Parser TraceMode
 tracemode = option auto
   (  long "trace-mode"
@@ -121,12 +100,31 @@ printmode :: Parser PrintMode
 printmode = option auto
   (  long "print-mode"
   <> metavar "MODE"
-  <> value Debug
+  <> value Simple
   <> showDefault
   <> help
-    ("Print mode for textual output (ignored elsewhere): Classic -> plcPrettyClassicDef, "
-     <> "Debug -> plcPrettyClassicDebug, "
-     <> "Readable -> prettyPlcReadableDef, ReadableDebug -> prettyPlcReadableDebug" ))
+    ("Print mode for textual output (ignored elsewhere): Classic -> plcPrettyClassic, "
+     <> "Simple -> plcPrettyClassicSimple, "
+     <> "Readable -> prettyPlcReadable, ReadableSimple -> prettyPlcReadableSimple" ))
+
+nameformat :: Parser NameFormat
+nameformat =
+  flag IdNames DeBruijnNames
+  (long "debruijn"
+   <> short 'j'
+   <> help "Output evaluation result with de Bruijn indices (default: show textual names)")
+
+certifier :: Parser Certifier
+certifier =
+  optional
+  $ strOption
+    (long "certify"
+    <> help
+        ("[EXPERIMENTAL] Produce a certificate ARG.agda proving that the program"
+        <> " transformaton is correct; the certificate is an Agda proof object, which"
+        <> " can be checked using the Agda proof assistant"
+        )
+    )
 
 printOpts :: Parser PrintOptions
 printOpts = PrintOptions <$> input <*> output <*> printmode
@@ -135,7 +133,9 @@ convertOpts :: Parser ConvertOptions
 convertOpts = ConvertOptions <$> input <*> inputformat <*> output <*> outputformat <*> printmode
 
 optimiseOpts :: Parser OptimiseOptions
-optimiseOpts = OptimiseOptions <$> input <*> inputformat <*> output <*> outputformat <*> printmode
+optimiseOpts =
+  OptimiseOptions
+  <$> input <*> inputformat <*> output <*> outputformat <*> printmode <*> certifier
 
 exampleMode :: Parser ExampleMode
 exampleMode = exampleAvailable <|> exampleSingle
@@ -159,6 +159,35 @@ exampleSingle = ExampleSingle <$> exampleName
 exampleOpts :: Parser ExampleOptions
 exampleOpts = ExampleOptions <$> exampleMode
 
+builtinSemanticsVariantReader :: String -> Maybe (BuiltinSemanticsVariant DefaultFun)
+builtinSemanticsVariantReader =
+    \case
+     "A" -> Just DefaultFunSemanticsVariantA
+     "B" -> Just DefaultFunSemanticsVariantB
+     "C" -> Just DefaultFunSemanticsVariantC
+     _   -> Nothing
+
+-- This is used to make the help message show you what you actually need to type.
+showBuiltinSemanticsVariant :: BuiltinSemanticsVariant DefaultFun -> String
+showBuiltinSemanticsVariant =
+    \case
+     DefaultFunSemanticsVariantA -> "A"
+     DefaultFunSemanticsVariantB -> "B"
+     DefaultFunSemanticsVariantC -> "C"
+
+builtinSemanticsVariant :: Parser (BuiltinSemanticsVariant DefaultFun)
+builtinSemanticsVariant = option (maybeReader builtinSemanticsVariantReader)
+  (  long "builtin-semantics-variant"
+  <> short 'S'
+  <> metavar "VARIANT"
+  <> value DefaultFunSemanticsVariantC
+  <> showDefaultWith showBuiltinSemanticsVariant
+  <> help
+    ("Builtin semantics variant: A -> DefaultFunSemanticsVariantA, "
+     <> "B -> DefaultFunSemanticsVariantB, "
+     <> "C -> DefaultFunSemanticsVariantC"
+    )
+  )
 
 -- Specialised parsers for PIR, which only supports ASTs over the Textual and
 -- Named types.
@@ -191,6 +220,8 @@ pPirOutputFormat = option (maybeReader pirFormatReader)
   <> value TextualPir
   <> showDefault
   <> help ("Output format: " ++ pirFormatHelp))
+
+-- Which language: PLC or UPLC?
 
 languageReader :: String -> Maybe Language
 languageReader =

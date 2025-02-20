@@ -1,0 +1,17 @@
+(program
+   1.1.0
+   (\d ->
+      force
+        (case
+           ((\cse ->
+               (\ds ->
+                  (\cse ->
+                     (\ds ->
+                        (\ds -> constr 0 [])
+                          (force headList (force tailList cse)))
+                       (force headList cse))
+                    (force tailList cse))
+                 (force headList cse))
+              (force (force sndPair) (unConstrData d)))
+           [ (delay ())
+           , (delay ((\x -> error) (force trace "PT5" (constr 0 [])))) ])))

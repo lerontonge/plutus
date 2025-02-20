@@ -1,3 +1,7 @@
+---
+title: Algorithmic.ReductionEC
+layout: page
+---
 ```
 module Algorithmic.ReductionEC where
 ```
@@ -7,27 +11,30 @@ module Algorithmic.ReductionEC where
 open import Agda.Builtin.String using (primStringAppend ; primStringEquality)
 open import Data.Nat using (ℕ;zero;suc)
 open import Data.Nat.Properties using (+-identityʳ)
+open import Data.Fin using (Fin;zero;suc)
 open import Data.Bool using (Bool;true;false)
 open import Data.Empty using (⊥;⊥-elim)
 open import Data.Integer using (_<?_;∣_∣;_≤?_;_≟_)
-open import Data.List as List using (List; _∷_; [];length)
+open import Data.Vec as Vec using (Vec;[];_∷_;lookup)
 open import Data.Maybe using (just;from-just)
 open import Data.Product using (_×_;∃;proj₁;proj₂) renaming (_,_ to _,,_)
 open import Data.String using (String)
 open import Data.Sum using (_⊎_;inj₁;inj₂)
 open import Data.Unit using (tt)
+open import Function using (_∘_)
 open import Relation.Nullary using (¬_;yes;no)
-open import Relation.Binary.PropositionalEquality 
-                    using (_≡_;refl;sym;trans;cong)  
+open import Relation.Binary.PropositionalEquality
+                    using (_≡_;refl;sym;trans;cong)
                     renaming (subst to substEq)
-open import Relation.Binary.HeterogeneousEquality 
-        using (_≅_;refl;≅-to-≡) 
+open import Relation.Binary.HeterogeneousEquality
+        using (_≅_;refl;≅-to-≡)
 
-open import Utils
+open import Utils hiding (List;length;map)
+open import Utils.List
 open import Type using (Ctx⋆;∅;_,⋆_;_⊢⋆_;_∋⋆_;Z)
 open _⊢⋆_
 import Type.RenamingSubstitution as T
-open import Algorithmic using (Ctx;_⊢_;conv⊢;⟦_⟧)
+open import Algorithmic using (Ctx;_⊢_;conv⊢;⟦_⟧;ConstrArgs;Cases;lookupCase;mkCaseType)
 open import Algorithmic.Signature using (btype;_[_]SigTy)
 open Ctx
 open _⊢_
@@ -38,37 +45,52 @@ open import Type.BetaNBE.RenamingSubstitution using (_[_]Nf)
 open import Type.BetaNormal using (_⊢Nf⋆_;_⊢Ne⋆_;embNf;weakenNf)
 open _⊢Nf⋆_
 open _⊢Ne⋆_
-open import Builtin 
+open import Builtin
 open import Builtin.Constant.Type using (TyCon)
 
 open import Builtin.Signature using (Sig;sig;Args;_⊢♯;args♯;fv)
 open Sig
 
-open Builtin.Signature.FromSig _⊢Nf⋆_ _⊢Ne⋆_ ne ` _·_ ^ con _⇒_   Π 
+open Builtin.Signature.FromSig _⊢Nf⋆_ _⊢Ne⋆_ ne ` _·_ ^ con _⇒_   Π
     using (sig2type;SigTy;sig2SigTy;sigTy2type;saturatedSigTy;convSigTy)
 open SigTy
 
 import Algorithmic.CEK as CEK
 ```
 
+
 ## Values
 
-``` 
+Values are indexed by terms
+List of values are indexed by list of terms.
+
+```
 data Value : {A : ∅ ⊢Nf⋆ *} → ∅ ⊢ A → Set
 
-data BApp (b : Builtin) : 
+-- List of Values
+VList : ∀{ts} → IBwd (∅ ⊢_) ts → Set
+VList = IIBwd Value
+
+deval : {A : ∅ ⊢Nf⋆ *}{u : ∅ ⊢ A} → Value u → ∅ ⊢ A
+deval {u = u} _ = u
+
+deval-VecList : ∀{n} → (Vec (List (∃ (∅ ⊢_))) n) → Vec (List (∅ ⊢Nf⋆ *)) n
+deval-VecList [] = []
+deval-VecList (xs ∷ xss) = map proj₁ xs ∷ (deval-VecList xss)
+
+data BApp (b : Builtin) :
     ∀{tn tm tt} → {pt : tn ∔ tm ≣ tt}
   → ∀{an am at} → {pa : an ∔ am ≣ at}
   → ∀{A} → SigTy pt pa A → ∅ ⊢ A → Set where
   base : BApp b (sig2SigTy (signature b)) (builtin b / refl )
   step : ∀{A B}{tn}
-    → {pt : tn ∔ 0 ≣ fv (signature b)} 
+    → {pt : tn ∔ 0 ≣ fv (signature b)}
     → ∀{an am}{pa : an ∔ suc am ≣ args♯ (signature b)}
     → {σB : SigTy pt (bubble pa) B}
     → {t : ∅ ⊢ A ⇒ B} → BApp b (A B⇒ σB) t
     → {u : ∅ ⊢ A} → Value u → BApp b σB (t · u)
   step⋆ : ∀{C}{K}{B : ∅ ,⋆ K ⊢Nf⋆ *}
-    → ∀{tn tm} {pt : tn ∔ (suc tm) ≣ fv (signature b)} 
+    → ∀{tn tm} {pt : tn ∔ (suc tm) ≣ fv (signature b)}
     → ∀{an am}{pa : an ∔ (suc am) ≣ args♯ (signature b)}
     → {σB : SigTy (bubble pt) pa B}
     → {t : ∅ ⊢ Π B} → BApp b (sucΠ σB) t
@@ -96,26 +118,31 @@ data Value where
    → Value (wrap A B M)
 
   V-con :  ∀{A : ∅ ⊢Nf⋆ ♯}
-    → (x : ⟦ A ⟧) 
+    → (x : ⟦ A ⟧)
     → Value (con {A = A} x refl)
 
   V-I⇒ : ∀ b {A B}{tn}
-       → {pt : tn ∔ 0 ≣ fv (signature b)} 
+       → {pt : tn ∔ 0 ≣ fv (signature b)}
        → ∀{an am}{pa : an ∔ (suc am) ≣ args♯ (signature b)}
        → {σB : SigTy pt (bubble pa) B}
        → {t : ∅ ⊢ A ⇒ B}
        → BApp b (A B⇒ σB) t
        → Value t
   V-IΠ : ∀ b {K}{A : ∅ ,⋆ K ⊢Nf⋆ *}
-       → ∀{tn tm} {pt : tn ∔ (suc tm) ≣ fv (signature b)} 
+       → ∀{tn tm} {pt : tn ∔ (suc tm) ≣ fv (signature b)}
        → ∀{an am}{pa : an ∔ suc am ≣ args♯ (signature b)}
        → {σA : SigTy (bubble pt) pa A}
        → {t : ∅ ⊢ Π A}
        → BApp b (sucΠ σA) t
        → Value t
-
-deval : {A : ∅ ⊢Nf⋆ *}{u : ∅ ⊢ A} → Value u → ∅ ⊢ A
-deval {u = u} _ = u
+  V-constr : ∀{n}(e : Fin n)
+          → (Tss : Vec (List ( ∅ ⊢Nf⋆ *)) n )
+          → ∀{Xs} → (p : Xs ≡ Vec.lookup Tss e)
+          → ∀{Ys} → (q : Ys ≡ [] <>< Xs)
+          → {ts : IBwd (∅ ⊢_) Ys}
+          → (vs : VList ts)
+          → ∀ {ts' : IList (∅ ⊢_) Xs} → (IBwd2IList (lemma<>1' _ _ q) ts ≡ ts')
+          → Value (constr e Tss p ts')
 
 red2cekVal : ∀{A}{L : ∅ ⊢ A} → Value L → CEK.Value A
 red2cekBApp : ∀{b}
@@ -129,12 +156,17 @@ red2cekBApp (base) = CEK.base
 red2cekBApp (step x x₁) = (red2cekBApp x) CEK.$ (red2cekVal x₁)
 red2cekBApp (step⋆ x refl) = (red2cekBApp x) CEK.$$ refl
 
+red2cekVal-VList : ∀{Ts}{ts : IBwd (_⊢_ ∅) Ts} →  (vs : VList ts) → CEK.VList Ts
+red2cekVal-VList [] = []
+red2cekVal-VList (vs :< x) = (red2cekVal-VList vs) :< (red2cekVal x)
+
 red2cekVal (V-ƛ M) = CEK.V-ƛ M CEK.[]
 red2cekVal (V-Λ M) = CEK.V-Λ M CEK.[]
 red2cekVal (V-wrap V) = CEK.V-wrap (red2cekVal V)
 red2cekVal (V-con {A} cn) = CEK.V-con cn
 red2cekVal (V-I⇒ b x) = CEK.V-I⇒ b (red2cekBApp x)
 red2cekVal (V-IΠ b x) = CEK.V-IΠ b (red2cekBApp x)
+red2cekVal (V-constr e Tss refl refl vs refl) = CEK.V-constr e Tss (red2cekVal-VList vs) refl
 
 BUILTIN' : ∀ b {A}{t : ∅ ⊢ A}
   → ∀{tn} → {pt : tn ∔ 0 ≣ fv (signature b)}
@@ -142,7 +174,7 @@ BUILTIN' : ∀ b {A}{t : ∅ ⊢ A}
   → {σA : SigTy pt pa A}
   → BApp b σA t
   → ∅ ⊢ A
-BUILTIN' b bt = CEK.BUILTIN' b (red2cekBApp bt) 
+BUILTIN' b bt = CEK.BUILTIN' b (red2cekBApp bt)
 ```
 
 ```
@@ -156,9 +188,11 @@ data Error :  ∀ {Φ Γ} {A : Φ ⊢Nf⋆ *} → Γ ⊢ A → Set where
 ### Frames
 
 Frames used by the CC and the CK machine, and their plugging function.
+
 ```
 data Frame : (T : ∅ ⊢Nf⋆ *) → (H : ∅ ⊢Nf⋆ *) → Set where
   -·_     : {A B : ∅ ⊢Nf⋆ *} → ∅ ⊢ A → Frame B (A ⇒ B)
+  -·v     : ∀{A B : ∅ ⊢Nf⋆ *}{t : ∅ ⊢ A} → Value t → Frame B (A ⇒ B)
   _·-     : {A B : ∅ ⊢Nf⋆ *}{t : ∅ ⊢ A ⇒ B} → Value t → Frame B A
   -·⋆     : ∀{K}{B : ∅ ,⋆ K ⊢Nf⋆ *}(A : ∅ ⊢Nf⋆ K) → Frame (B [ A ]Nf) (Π B)
 
@@ -166,13 +200,23 @@ data Frame : (T : ∅ ⊢Nf⋆ *) → (H : ∅ ⊢Nf⋆ *) → Set where
     → Frame (μ A B) (nf (embNf A · ƛ (μ (embNf (weakenNf A)) (` Z)) · embNf B))
   unwrap- : ∀{K}{A : ∅ ⊢Nf⋆ (K ⇒ *) ⇒ K ⇒ *}{B : ∅ ⊢Nf⋆ K}
     → Frame (nf (embNf A · ƛ (μ (embNf (weakenNf A)) (` Z)) · embNf B)) (μ A B)
+  constr- : ∀{n Vs H Ts}
+          → (i : Fin n)
+          → (Tss : Vec _ n)
+          → ∀ {Xs} → (Xs ≡ Vec.lookup Tss i)
+          → {tidx : Xs ≣ Vs <>> (H ∷ Ts)} → {tvs : IBwd (∅ ⊢_) Vs} → VList tvs → ConstrArgs ∅ Ts
+          → Frame (SOP Tss) H
+  case-   : ∀{A n}{Tss : Vec _ n} → Cases ∅ A Tss → Frame A (SOP Tss)
 
 _[_]ᶠ : ∀{A B : ∅ ⊢Nf⋆ *} → Frame B A → ∅ ⊢ A → ∅ ⊢ B
-(-· M') [ L ]ᶠ = L · M'
-(V ·-)  [ L ]ᶠ = deval V · L
--·⋆ A   [ L ]ᶠ = L ·⋆ A / refl
-wrap-   [ L ]ᶠ = wrap _ _ L
-unwrap- [ L ]ᶠ = unwrap L refl
+(-· M')          [ L ]ᶠ = L · M'
+(-·v V)          [ L ]ᶠ = L · deval V
+(V ·-)           [ L ]ᶠ = deval V · L
+-·⋆ A            [ L ]ᶠ = L ·⋆ A / refl
+wrap-            [ L ]ᶠ = wrap _ _ L
+unwrap-          [ L ]ᶠ = unwrap L refl
+constr- i Tss refl {tidx} {tvs} _ ts [ L ]ᶠ = constr i Tss (sym (lem-≣-<>> tidx)) (tvs <>>I (L ∷ ts))
+case- cs         [ L ]ᶠ = case L cs
 ```
 
 ## Evaluation Contexts
@@ -180,7 +224,7 @@ unwrap- [ L ]ᶠ = unwrap L refl
 ```
 data EC : (T : ∅ ⊢Nf⋆ *) → (H : ∅ ⊢Nf⋆ *) → Set where
   []   : {A : ∅ ⊢Nf⋆ *} → EC A A
-  _l·_ : {A B C : ∅ ⊢Nf⋆ *} → EC (A ⇒ B) C → ∅ ⊢ A → EC B C
+  _l·_ : {A B C : ∅ ⊢Nf⋆ *} → EC (A ⇒ B) C → (t : ∅ ⊢ A) → EC B C
   _·r_ : {A B C : ∅ ⊢Nf⋆ *}{t : ∅ ⊢ A ⇒ B} → Value t → EC A C → EC B C
   _·⋆_/_ : ∀{K}{B : ∅ ,⋆ K ⊢Nf⋆ *}{C}{X}
     → EC (Π B) C → (A : ∅ ⊢Nf⋆ K) → X ≡ B [ A ]Nf → EC X C
@@ -189,8 +233,17 @@ data EC : (T : ∅ ⊢Nf⋆ *) → (H : ∅ ⊢Nf⋆ *) → Set where
     → EC (μ A B) C
   unwrap_/_ : ∀{K}{A : ∅ ⊢Nf⋆ (K ⇒ *) ⇒ K ⇒ *}{B : ∅ ⊢Nf⋆ K}{C}{X}
     → EC (μ A B) C
-    → X ≡ (nf (embNf A · ƛ (μ (embNf (weakenNf A)) (` Z)) · embNf B)) 
+    → X ≡ (nf (embNf A · ƛ (μ (embNf (weakenNf A)) (` Z)) · embNf B))
     → EC X C
+  constr : ∀{n Vs H Ts C}
+          → (i : Fin n)
+          → (Tss : Vec _ n)
+          → ∀ {Xs} → (Xs ≡ Vec.lookup Tss i)
+          → {tidx : Xs ≣ Vs <>> (H ∷ Ts)}
+          → {tvs : IBwd (∅ ⊢_) Vs} → VList tvs → ConstrArgs ∅ Ts
+          → EC H C
+          → EC (SOP Tss) C
+  case   :  ∀{A C n}{Tss : Vec _ n} → Cases ∅ A Tss → EC (SOP Tss) C → EC A C
 
 -- Plugging of evaluation contexts
 _[_]ᴱ : ∀{A B : ∅ ⊢Nf⋆ *} → EC B A → ∅ ⊢ A → ∅ ⊢ B
@@ -200,11 +253,21 @@ _[_]ᴱ : ∀{A B : ∅ ⊢Nf⋆ *} → EC B A → ∅ ⊢ A → ∅ ⊢ B
 (E ·⋆ A / q) [ L ]ᴱ = E [ L ]ᴱ ·⋆ A / q
 (wrap   E) [ L ]ᴱ = wrap _ _ (E [ L ]ᴱ)
 (unwrap E / q) [ L ]ᴱ = unwrap (E [ L ]ᴱ) q
+constr i Tss p {idx} {tvs} vs ts E [ L ]ᴱ = constr i Tss (trans (sym (lem-≣-<>> idx)) p) (tvs <>>I (E [ L ]ᴱ ∷ ts))
+case cs E [ L ]ᴱ = case (E [ L ]ᴱ) cs
 ```
 
 ## Evaluation Relation
 
 ```
+applyCase : ∀ {A : ∅ ⊢Nf⋆ *}
+              {ts : List (∅ ⊢Nf⋆ *)}
+              (f : ∅ ⊢ mkCaseType A ts)
+           →  (cs : ConstrArgs ∅ ts)
+           → ∅ ⊢ A
+applyCase f [] = f
+applyCase f (x ∷ cs) = applyCase (f · x) cs
+
 infix 2 _—→⋆_
 
 data _—→⋆_ : {A : ∅ ⊢Nf⋆ *} → (∅ ⊢ A) → (∅ ⊢ A) → Set where
@@ -230,7 +293,7 @@ data _—→⋆_ : {A : ∅ ⊢Nf⋆ *} → (∅ ⊢ A) → (∅ ⊢ A) → Set 
   β-builtin : ∀{A B}{tn}
       (b : Builtin)
     → (t : ∅ ⊢ A ⇒ B)
-    → {pt : tn ∔ 0 ≣ fv (signature b)} 
+    → {pt : tn ∔ 0 ≣ fv (signature b)}
     → ∀{an} → {pa : an ∔ 1 ≣  args♯ (signature b)}
     → {σB : SigTy pt (bubble pa) B}
     → (bt : BApp b (A B⇒ σB) t) -- one left
@@ -238,9 +301,18 @@ data _—→⋆_ : {A : ∅ ⊢Nf⋆ *} → (∅ ⊢ A) → (∅ ⊢ A) → Set 
     → (vu : Value u)
       -----------------------------
     → t · u —→⋆ BUILTIN' b (step bt vu)
+
+  β-case : ∀{n}{A : ∅ ⊢Nf⋆ *}
+    → (e : Fin n)
+    → (Tss : Vec (List (∅ ⊢Nf⋆ *)) n)
+    → ∀{Ys} → (q : Ys ≡ [] <>< Vec.lookup Tss e)
+    → {ts : IBwd (∅ ⊢_) Ys}
+    → (vs : VList ts)
+    → ∀ {ts' : IList (∅ ⊢_) (Vec.lookup Tss e)} → (IBwd2IList (lemma<>1' _ _ q) ts ≡ ts')
+    → (cases : Cases ∅ A Tss)
+    → case (constr e Tss refl ts') cases —→⋆ applyCase (lookupCase e cases) ts'
+-- -}
 ```
-
-
 
 ```
 infix 2 _—→_
@@ -303,3 +375,4 @@ ival : ∀ b → Value (builtin b / refl)
 ival b = V-I b base
 -- -}
 ```
+

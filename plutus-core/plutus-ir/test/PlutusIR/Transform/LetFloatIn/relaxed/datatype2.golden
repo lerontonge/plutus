@@ -1,0 +1,7 @@
+\(x : integer) (y : integer) ->
+  let
+    data Bool | Bool_match where
+      True : Bool
+      False : Bool
+  in
+  ifThenElse {Bool} (equalsInteger x y) True False

@@ -1,0 +1,71 @@
+program
+  1.1.0
+  ((/\(List :: * -> *) ->
+      \(Nil : all a. List a)
+       (Cons : all a. a -> List a -> List a)
+       (match_List :
+          all a.
+            List a ->
+            (all out_List.
+               out_List -> (a -> List a -> out_List) -> out_List)) ->
+        /\a -> \(x : a) -> x)
+     {\a ->
+        ifix
+          (\(List :: * -> *) a ->
+             all out_List. out_List -> (a -> List a -> out_List) -> out_List)
+          a}
+     (/\a ->
+        iwrap
+          (\(List :: * -> *) a ->
+             all out_List. out_List -> (a -> List a -> out_List) -> out_List)
+          a
+          (/\out_List ->
+             \(case_Nil : out_List)
+              (case_Cons :
+                 a ->
+                 (\a ->
+                    ifix
+                      (\(List :: * -> *) a ->
+                         all out_List.
+                           out_List -> (a -> List a -> out_List) -> out_List)
+                      a)
+                   a ->
+                 out_List) ->
+               case_Nil))
+     (/\a ->
+        \(arg_0 : a)
+         (arg_1 :
+            (\a ->
+               ifix
+                 (\(List :: * -> *) a ->
+                    all out_List.
+                      out_List -> (a -> List a -> out_List) -> out_List)
+                 a)
+              a) ->
+          iwrap
+            (\(List :: * -> *) a ->
+               all out_List. out_List -> (a -> List a -> out_List) -> out_List)
+            a
+            (/\out_List ->
+               \(case_Nil : out_List)
+                (case_Cons :
+                   a ->
+                   (\a ->
+                      ifix
+                        (\(List :: * -> *) a ->
+                           all out_List.
+                             out_List -> (a -> List a -> out_List) -> out_List)
+                        a)
+                     a ->
+                   out_List) ->
+                 case_Cons arg_0 arg_1))
+     (/\a ->
+        \(x :
+            (\a ->
+               ifix
+                 (\(List :: * -> *) a ->
+                    all out_List.
+                      out_List -> (a -> List a -> out_List) -> out_List)
+                 a)
+              a) ->
+          unwrap x))

@@ -1,0 +1,8 @@
+letrec
+  ~y : integer = (\(h : integer) -> addInteger z h) 4
+  ~z : integer = y
+in
+let
+  !x : integer = (\(k : integer) -> addInteger y k) 3
+in
+x

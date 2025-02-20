@@ -1,0 +1,6 @@
+addInteger
+  (let
+    ~y : integer = let ~x : integer = addInteger 1 2 in addInteger x x
+  in
+  y)
+  3

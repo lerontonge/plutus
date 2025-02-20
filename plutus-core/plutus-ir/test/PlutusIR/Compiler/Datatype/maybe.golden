@@ -1,0 +1,20 @@
+program
+  1.1.0
+  ((/\(Maybe :: * -> *) ->
+      \(Nothing : all a. Maybe a)
+       (Just : all a. a -> Maybe a)
+       (match_Maybe :
+          all a.
+            Maybe a ->
+            (all out_Maybe. out_Maybe -> (a -> out_Maybe) -> out_Maybe)) ->
+        Just)
+     {\a -> sop [] [a]}
+     (/\a -> constr (sop [] [a]) 0 [])
+     (/\a -> \(arg_0 : a) -> constr (sop [] [a]) 1 [arg_0])
+     (/\a ->
+        \(x : (\a -> sop [] [a]) a) ->
+          /\out_Maybe ->
+            \(case_Nothing : out_Maybe) (case_Just : a -> out_Maybe) ->
+              case out_Maybe x [case_Nothing, case_Just])
+     {all a. a -> a}
+     (/\a -> \(x : a) -> x))

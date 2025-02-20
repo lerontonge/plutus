@@ -1,0 +1,5 @@
+let
+  ~x : integer = addInteger 1 2
+  ~y : integer = addInteger x x
+in
+addInteger y y

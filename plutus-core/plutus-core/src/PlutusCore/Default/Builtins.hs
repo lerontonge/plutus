@@ -1,13 +1,15 @@
 -- editorconfig-checker-disable-file
+{-# LANGUAGE BangPatterns          #-}
+{-# LANGUAGE CPP                   #-}
 {-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE DeriveAnyClass        #-}
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE InstanceSigs          #-}
 {-# LANGUAGE LambdaCase            #-}
+{-# LANGUAGE MagicHash             #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
-{-# LANGUAGE TypeApplications      #-}
 {-# LANGUAGE TypeFamilies          #-}
 {-# LANGUAGE TypeOperators         #-}
 {-# LANGUAGE UndecidableInstances  #-}
@@ -17,31 +19,42 @@ module PlutusCore.Default.Builtins where
 import PlutusPrelude
 
 import PlutusCore.Builtin
-import PlutusCore.Data
+import PlutusCore.Data (Data (..))
 import PlutusCore.Default.Universe
 import PlutusCore.Evaluation.Machine.BuiltinCostModel
-import PlutusCore.Evaluation.Machine.ExBudgetStream
-import PlutusCore.Evaluation.Machine.ExMemoryUsage
-import PlutusCore.Evaluation.Result
-import PlutusCore.Pretty
+import PlutusCore.Evaluation.Machine.ExBudgetStream (ExBudgetStream)
+import PlutusCore.Evaluation.Machine.ExMemoryUsage (ExMemoryUsage, IntegerCostedLiterally (..),
+                                                    ListCostedByLength (..),
+                                                    NumBytesCostedAsNumWords (..), memoryUsage,
+                                                    singletonRose)
+import PlutusCore.Pretty (PrettyConfigPlc)
 
+import PlutusCore.Bitwise qualified as Bitwise
 import PlutusCore.Crypto.BLS12_381.G1 qualified as BLS12_381.G1
 import PlutusCore.Crypto.BLS12_381.G2 qualified as BLS12_381.G2
 import PlutusCore.Crypto.BLS12_381.Pairing qualified as BLS12_381.Pairing
-import PlutusCore.Crypto.Ed25519 (verifyEd25519Signature_V1, verifyEd25519Signature_V2)
+import PlutusCore.Crypto.Ed25519 (verifyEd25519Signature)
+import PlutusCore.Crypto.ExpMod qualified as ExpMod
 import PlutusCore.Crypto.Hash qualified as Hash
 import PlutusCore.Crypto.Secp256k1 (verifyEcdsaSecp256k1Signature, verifySchnorrSecp256k1Signature)
 
 import Codec.Serialise (serialise)
+import Control.Monad (unless)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
-import Data.Char
-import Data.Ix
-import Data.Text (Text, pack)
+import Data.Ix (Ix)
+import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8', encodeUtf8)
+import Data.Vector.Strict (Vector)
+import Data.Vector.Strict qualified as Vector
 import Flat hiding (from, to)
-import Flat.Decoder
-import Flat.Encoder as Flat
+import Flat.Decoder (Get, dBEBits8)
+import Flat.Encoder as Flat (Encoding, NumBits, eBits)
+#if MIN_VERSION_base(4,15,0)
+import GHC.Num.Integer (Integer (..))
+#endif
+import GHC.Types (Int (..))
+import NoThunks.Class (NoThunks)
 import Prettyprinter (viaShow)
 
 -- See Note [Pattern matching on built-in types].
@@ -49,7 +62,7 @@ import Prettyprinter (viaShow)
 -- | Default built-in functions.
 --
 -- When updating these, make sure to add them to the protocol version listing!
--- See Note [New builtins and protocol versions]
+-- See Note [New builtins/language versions and protocol versions]
 data DefaultFun
     -- Integers
     = AddInteger
@@ -119,7 +132,7 @@ data DefaultFun
     -- Misc monomorphized constructors.
     -- We could simply replace those with constants, but we use built-in functions for consistency
     -- with monomorphic built-in types. Polymorphic built-in constructors are generally problematic,
-    -- See note [Representable built-in functions over polymorphic built-in types].
+    -- See Note [Representable built-in functions over polymorphic built-in types].
     | MkPairData
     | MkNilData
     | MkNilPairData
@@ -147,6 +160,33 @@ data DefaultFun
     -- Keccak_256, Blake2b_224
     | Keccak_256
     | Blake2b_224
+    -- Conversions
+    | IntegerToByteString
+    | ByteStringToInteger
+    -- Logical
+    | AndByteString
+    | OrByteString
+    | XorByteString
+    | ComplementByteString
+    | ReadBit
+    | WriteBits
+    | ReplicateByte
+    -- Bitwise
+    | ShiftByteString
+    | RotateByteString
+    | CountSetBits
+    | FindFirstSetBit
+    -- Ripemd_160
+    | Ripemd_160
+    -- Batch 6
+    | ExpModInteger
+    | CaseList
+    | CaseData
+    | DropList
+    -- Arrays
+    | LengthOfArray
+    | ListToArray
+    | IndexArray
     deriving stock (Show, Eq, Ord, Enum, Bounded, Generic, Ix)
     deriving anyclass (NFData, Hashable, PrettyBy PrettyConfigPlc)
 
@@ -157,28 +197,40 @@ data DefaultFun
  the built-in functions are obtained by applying the function below to the
  constructor names above. -}
 instance Pretty DefaultFun where
-    pretty fun = pretty $ case show fun of
-        ""    -> ""  -- It's really weird to have a function's name displayed as an empty string,
-                     -- but if it's what the 'Show' instance does, the user has asked for it.
-        c : s -> toLower c : s
+    pretty fun = pretty $ lowerInitialChar $ show fun
 
 instance ExMemoryUsage DefaultFun where
     memoryUsage _ = singletonRose 1
+    {-# INLINE memoryUsage #-}
 
--- | Turn a function into another function that returns 'EvaluationFailure' when
--- its second argument is 0 or calls the original function otherwise and wraps
--- the result in 'EvaluationSuccess'.  Useful for correctly handling `div`,
+-- | Turn a function into another function that 'fail's when its second argument is @0@ or calls the
+-- original function otherwise and wraps the result in 'pure'. Useful for correctly handling `div`,
 -- `mod`, etc.
-nonZeroArg :: (Integer -> Integer -> Integer) -> Integer -> Integer -> EvaluationResult Integer
-nonZeroArg _ _ 0 = EvaluationFailure
-nonZeroArg f x y = EvaluationSuccess $ f x y
+nonZeroSecondArg
+    :: (Integer -> Integer -> Integer) -> Integer -> Integer -> BuiltinResult Integer
+-- If we match against @IS 0#@ instead of @0@, GHC will generate tidier Core for some reason. It
+-- probably doesn't really matter performance-wise, but would be easier to read. We don't do it out
+-- of paranoia and because it requires importing the 'IS' constructor, which is in different
+-- packages depending on the GHC version, so requires a bunch of irritating CPP.
+--
+-- We could also replace 'div' with 'integerDiv' (and do the same for other division builtins) at
+-- the call site of this function in order to avoid double matching against @0@, but that also
+-- requires CPP. Perhaps we can afford one additional pattern match for division builtins for the
+-- time being, since those aren't particularly fast anyway.
+--
+-- The bang is to communicate to GHC that the function is strict in both the arguments just in case
+-- it'd want to allocate a thunk for the first argument otherwise.
+nonZeroSecondArg _ !_ 0 =
+    -- See Note [Structural vs operational errors within builtins].
+    fail "Cannot divide by zero"
+nonZeroSecondArg f  x y = pure $ f x y
+{-# INLINE nonZeroSecondArg #-}
 
--- | Turn a function returning 'Either' into another function that emits an
--- error message and returns 'EvaluationFailure' in the 'Left' case and wraps
--- the result in 'EvaluationSuccess' in the 'Right' case.
-eitherToEmitter :: Show e => Either e r -> Emitter (EvaluationResult r)
-eitherToEmitter (Left e)  = (emit . pack . show $ e) >> pure EvaluationFailure
-eitherToEmitter (Right r) = pure . pure $ r
+-- | Turn a function returning 'Either' into another function that 'fail's in the 'Left' case and
+-- wraps the result in 'pure' in the 'Right' case.
+eitherToBuiltinResult :: Show e => Either e r -> BuiltinResult r
+eitherToBuiltinResult = either (fail . show) pure
+{-# INLINE eitherToBuiltinResult #-}
 
 {- Note [Constants vs built-in functions]
 A constant is any value of a built-in type. For example, 'Integer' is a built-in type, so anything
@@ -226,22 +278,58 @@ built-in function.
 -}
 
 {- Note [How to add a built-in function: simple cases]
-This Notes explains how to add a built-in function and how to read definitions of existing built-in
+This Note explains how to add a built-in function and how to read definitions of existing built-in
 functions. It does not attempt to explain why things the way they are, that is explained in comments
-in relevant files (will have a proper overview doc on that, but for now you can check out this
-comment: https://github.com/input-output-hk/plutus/issues/4306#issuecomment-1003308938).
+in relevant modules, check out the following for an overview of the module structure:
+https://github.com/IntersectMBO/plutus/blob/97c2b2c6975e41ce25ee5efa1dff0f1bd891a589/plutus-core/docs/BuiltinsOverview.md
 
 In order to add a new built-in function one needs to add a constructor to 'DefaultFun' and handle
-it within the @ToBuiltinMeaning uni DefaultFun@ instance like this:
+it within the @ToBuiltinMeaning uni DefaultFun@ instance. The general pattern is
 
-    toBuiltinMeaning <Name> =
-        makeBuiltinMeaning
-            <denotation>
+    toBuiltinMeaning semvar <BuiltinName> =
+        let <builtinNameDenotation> :: BS.ByteString -> BS.ByteString
+            <builtinNameDenotation> = <denotation>
+            {-# INLINE <builtinNameDenotation> #-}
+        in makeBuiltinMeaning
+            <builtinNameDenotation>
             <costingFunction>
+
+Here's a specific example:
+
+    toBuiltinMeaning _ AddInteger =
+        let addIntegerDenotation :: Integer -> Integer -> Integer
+            addIntegerDenotation = (+)
+            {-# INLINE addIntegerDenotation #-}
+        in makeBuiltinMeaning
+            addIntegerDenotation
+            (runCostingFunTwoArguments . paramAddInteger)
 
 'makeBuiltinMeaning' creates a Plutus builtin out of its denotation (i.e. Haskell implementation)
 and a costing function for it. Once a builtin is added, its Plutus type is kind-checked and printed
-to a golden file automatically (consult @git status@).
+to a golden file automatically (consult @git status@). 'toBuiltinMeaning' also takes a
+'BuiltinSemanticsVariant' argument which allows a particular builtin name to have multiple
+associated denotations (see Note [Builtin semantics variants]), but for simplicity we assume in the
+examples below that all builtins have only one variant rendering the @semvar@ argument irrelevant.
+
+See Note [Builtin semantics variants] for how @semvar@ enables us to customize the behavior of a
+built-in function. For the purpose of these docs we're going to ignore that and use @_@ instead of
+@semvar@.
+
+Note that it's very important for the denotation to have an explicit type signature for several
+reasons:
+
+1. makes it easier to review the code and make sure it makes sense
+2. makes it easier to search for builtins associated with certain types -- just @grep@ for the type
+3. most importantly, if we let GHC infer the types, there's a small but very real chance that
+   updating a library to a newer version will change the type of some definition used within the
+   denotation of a builtin and that may get reflected in the type signature of the builtin without
+   us noticing, since the builtins machinery will gladly swallow the change. And since the type
+   signature of a builtin determines its behavior via ad hoc polymorphism a change in the type
+   signature can cause a sudden hardfork, which would be very bad
+
+hence we specify the type signature for the denotation of each builtin explicitly and always create
+a @let@ binding for consistency. We add an @INLINE@ pragma to the @let@ binding to make sure that
+the binding doesn't get in the way of performance.
 
 Below we will enumerate what kind of denotations are accepted by 'makeBuiltinMeaning' without
 touching any costing stuff.
@@ -253,61 +341,29 @@ built-in types and returns a value of a built-in type as well. For example
 
 You can feed 'encodeUtf8' directly to 'makeBuiltinMeaning' without specifying any types:
 
-    toBuiltinMeaning EncodeUtf8 =
-        makeBuiltinMeaning
-            encodeUtf8
+    toBuiltinMeaning _ EncodeUtf8 =
+        let encodeUtf8Denotation :: Text -> BS.ByteString
+            encodeUtf8Denotation = encodeUtf8
+            {-# INLINE encodeUtf8Denotation #-}
+        in makeBuiltinMeaning
+            encodeUtf8Denotation
             <costingFunction>
 
 This will add the builtin, the only two things that remain are implementing costing for this
 builtin (out of the scope of this Note) and handling it within the @Flat DefaultFun@ instance
-(see Note [Stable encoding of PLC]).
+(see Note [Stable encoding of TPLC]).
 
-2. If the type of the denotation has any constrained type variables in it, all of them need to be
-instantiated. For example feeding @(+)@ directly to 'makeBuiltinMeaning' will give you an error
-message asking to instantiate constrained type variables, which you can do via an explicit type
-annotation or type application or using any other way of specifying types.
+2. Unconstrained type variables are fine, you don't need to instantiate them. For example
 
-Here's how it looks with a type application instantiating the type variable of @(+)@:
-
-    toBuiltinMeaning AddInteger =
-        makeBuiltinMeaning
-            ((+) @Integer)
+    toBuiltinMeaning _ IfThenElse =
+        let ifThenElseDenotation :: Bool -> a -> a -> a
+            ifThenElseDenotation b x y = if b then x else y
+            {-# INLINE ifThenElseDenotation #-}
+        in makeBuiltinMeaning
+            ifThenElseDenotation
             <costingFunction>
 
-Or we can specify the whole type of the denotation by type-applying 'makeBuiltinMeaning':
-
-    toBuiltinMeaning AddInteger =
-        makeBuiltinMeaning
-            @(Integer -> Integer -> Integer)
-            (+)
-            <costingFunction>
-
-Or we can simply annotate @(+)@ with its monomorphized type:
-
-    toBuiltinMeaning AddInteger =
-        makeBuiltinMeaning
-            ((+) :: Integer -> Integer -> Integer)
-            <costingFunction>
-
-All of these are equivalent.
-
-It works the same way for a built-in function that has monomorphized polymorphic built-in types in
-its type signature, for example:
-
-    toBuiltinMeaning SumInteger =
-        makeBuiltinMeaning
-            (sum :: [Integer] -> Integer)
-            <costingFunction>
-
-3. Unconstrained type variables are fine, you don't need to instantiate them (but you may want to if
-you want some builtin to be less general than what Haskell infers for its denotation). For example
-
-    toBuiltinMeaning IfThenElse =
-        makeBuiltinMeaning
-            (\b x y -> if b then x else y)
-            <costingFunction>
-
-works alright. The inferred Haskell type of the denotation is
+works alright. The Haskell type of the denotation is
 
     forall a. Bool -> a -> a -> a
 
@@ -323,14 +379,17 @@ of them that are important to know to be able to use 'makeBuiltinMeaning' in cas
 complicated than a simple monomorphic or polymorphic function. But for now let's talk about a few
 more simple cases.
 
-4. Certain types are not built-in, but can be represented via built-in ones. For example, we don't
-have 'Int' as a built-in, but we have 'Integer' and we can represent the former in terms of the
+3. Certain types are not built-in, but can be represented via built-in ones. For example, we don't
+have 'Int' built-in, but we have 'Integer' and we can represent the former in terms of the
 latter. The conversions between the two types are handled by 'makeBuiltinMeaning', so that the user
 doesn't need to write them themselves and can just write
 
-    toBuiltinMeaning LengthOfByteString =
-        makeBuiltinMeaning
-            BS.length
+    toBuiltinMeaning _ LengthOfByteString =
+        let lengthOfByteStringDenotation :: BS.ByteString -> Int
+            lengthOfByteStringDenotation = BS.length
+            {-# INLINE lengthOfByteStringDenotation #-}
+        in makeBuiltinMeaning
+            lengthOfByteStringDenotation
             <costingFunction>
 
 directly (where @BS.length :: BS.ByteString -> Int@).
@@ -355,32 +414,35 @@ one and adjust.
 
 Speaking of builtin application failing:
 
-5. A built-in function can fail. Whenever a builtin fails, evaluation of the whole program fails.
+4. A built-in function can fail. Whenever a builtin fails, evaluation of the whole program fails.
 There's a number of ways a builtin can fail:
 
 - as we've just seen a type conversion can fail due to an unsuccessful bounds check
 - if the builtin expects, say, a 'Text' argument, but gets fed an 'Integer' argument
 - if the builtin expects any constant, but gets fed a non-constant
-- if its denotation runs in the 'EvaluationResult' and an 'EvaluationFailure' gets returned
+- if its denotation runs in the 'BuiltinResult' monad and an 'evaluationFailure' gets returned
 
 Most of these are not a concern to the user defining a built-in function (conversions are handled
 within the builtin application machinery, type mismatches are on the type checker and the person
-writing the program etc), however explicitly returning 'EvaluationFailure' from a builtin is
+writing the program etc), however explicitly returning 'evaluationFailure' from a builtin is
 something that happens commonly.
 
 One simple example is a monomorphic function matching on a certain constructor and failing in all
 other cases:
 
-    toBuiltinMeaning UnIData =
-        makeBuiltinMeaning
-            (\case
-                I i -> EvaluationSuccess i
-                _   -> EvaluationFailure)
+    toBuiltinMeaning _ UnIData =
+        let unIDataDenotation :: Data -> BuiltinResult Integer
+            unIDataDenotation = \case
+                I i -> pure i
+                _   -> evaluationFailure
+            {-# INLINE unIDataDenotation #-}
+        in makeBuiltinMeaning
+            unIDataDenotation
             <costingFunction>
 
-The inferred type of the denotation is
+The type of the denotation is
 
-    Data -> EvaluationResult Integer
+    Data -> BuiltinResult Integer
 
 and the Plutus type of the builtin is
 
@@ -388,29 +450,31 @@ and the Plutus type of the builtin is
 
 because the error effect is implicit in Plutus.
 
-Returning @EvaluationResult a@ for a type variable @a@ is also fine, i.e. it doesn't matter whether
+Returning @BuiltinResult a@ for a type variable @a@ is also fine, i.e. it doesn't matter whether
 the denotation is monomorphic or polymorphic w.r.t. failing.
 
 But note that
 
-    'EvaluationResult' MUST BE EXPLICITLY USED FOR ANY FAILING BUILTIN AND THROWING AN EXCEPTION
+    'BuiltinResult' MUST BE EXPLICITLY USED FOR ANY FAILING BUILTIN AND THROWING AN EXCEPTION
     VIA 'error' OR 'throw' OR ELSE IS NOT ALLOWED AND CAN BE A HUGE VULNERABILITY. MAKE SURE THAT
     NONE OF THE FUNCTIONS THAT YOU USE TO DEFINE A BUILTIN THROW EXCEPTIONS
 
-An argument of a builtin can't have 'EvaluationResult' in its type -- only the result.
+An argument of a builtin can't have 'BuiltinResult' in its type -- only the result.
 
-6. A builtin can emit log messages. For that it needs to run in the 'Emitter' monad. The ergonomics
-are the same as with 'EvaluationResult': 'Emitter' can't appear in the type of an argument and
-polymorphism is fine. For example:
+5. A builtin can emit log messages. For that its denotation needs to run in the 'BuiltinResult' as
+in case of failing. The ergonomics are the same. For example:
 
-    toBuiltinMeaning Trace =
-        makeBuiltinMeaning
-            (\text a -> a <$ emit text)
+    toBuiltinMeaning _ Trace =
+        let traceDenotation :: Text -> a -> BuiltinResult a
+            traceDenotation text a = a <$ emit text
+            {-# INLINE traceDenotation #-}
+        in makeBuiltinMeaning
+            traceDenotation
             <costingFunction>
 
-The inferred type of the denotation is
+The type of the denotation is
 
-    forall a. Text -> a -> Emitter a
+    forall a. Text -> a -> Builtin a
 
 and the Plutus type of the builtin is
 
@@ -419,10 +483,6 @@ and the Plutus type of the builtin is
 because just like with the error effect, whether a function logs anything or not is not reflected
 in its type.
 
-'makeBuiltinMeaning' allows one to nest 'EvaluationResult' inside of 'Emitter' and vice versa,
-but as always nesting monads inside of each other without using monad transformers doesn't have good
-ergonomics, since computations of such a type can't be chained with a simple @(>>=)@.
-
 This concludes the list of simple cases. Before we jump to the hard ones, we need to talk about how
 polymorphism gets elaborated, so read Note [Elaboration of polymorphism] next.
 -}
@@ -430,12 +490,15 @@ polymorphism gets elaborated, so read Note [Elaboration of polymorphism] next.
 {- Note [Elaboration of polymorphism]
 In Note [How to add a built-in function: simple cases] we defined the following builtin:
 
-    toBuiltinMeaning IfThenElse =
-        makeBuiltinMeaning
-            (\b x y -> if b then x else y)
+    toBuiltinMeaning _ IfThenElse =
+        let ifThenElseDenotation :: Bool -> a -> a -> a
+            ifThenElseDenotation b x y = if b then x else y
+            {-# INLINE ifThenElseDenotation #-}
+        in makeBuiltinMeaning
+            ifThenElseDenotation
             <costingFunction>
 
-whose inferred Haskell type is
+whose Haskell type is
 
     forall a. Bool -> a -> a -> a
 
@@ -444,7 +507,8 @@ variable. What a type variable gets instantiated to depends on where it appears.
 type of an argument is a single type variable, it gets instantiated to @Opaque val VarN@ where
 @VarN@ is pseudocode for "a Haskell type representing a Plutus type variable with 'Unique' N"
 For the purpose of this explanation it doesn't matter what @VarN@ actually is and the representation
-is subject to change anyway. 'Opaque' however is more fundamental and so we need to talk about it.
+is subject to change anyway (see Note [Implementation of polymorphic built-in functions] if you want
+to know the details). 'Opaque' however is more fundamental and so we need to talk about it.
 Here's how it's defined:
 
     newtype Opaque val (rep :: GHC.Type) = Opaque
@@ -491,38 +555,24 @@ So we use the @Opaque val rep@ wrapper, which is basically a @val@ with a @rep@ 
 
     Bool -> Opaque val Var0 -> Opaque val Var0 -> Opaque val Var0
 
-Not only does this encoding allow us to specify both the Haskell and the Plutus types of the
-builtin simultaneously, but it also makes it possible to infer such a type from a regular
-polymorphic Haskell function (how that is done is a whole another story), so that we don't even need
-to specify any types when creating built-in functions out of simple polymorphic denotations.
+This encoding allows us to specify both the Haskell and the Plutus types of the builtin
+simultaneously.
 
-If we wanted to specify the type explicitly, we could do it like this (leaving out the @Var0@ thing
-for the elaboration machinery to figure out):
+If we wanted to we could add explicit 'Opaque' while still having explicit polymorphism (leaving out
+the @Var0@ thing for the elaboration machinery to figure out):
 
-    toBuiltinMeaning IfThenElse =
-        makeBuiltinMeaning
-            @(Bool -> Opaque val _ -> Opaque val _ -> Opaque val _)
-            (\b x y -> if b then x else y)
+    toBuiltinMeaning _ IfThenElse =
+        let ifThenElseDenotation :: Bool -> Opaque val a -> Opaque val a -> Opaque val a
+            ifThenElseDenotation b x y = if b then x else y
+            {-# INLINE ifThenElseDenotation #-}
+        in makeBuiltinMeaning
+            ifThenElseDenotation
             <costingFunction>
 
-and it would be equivalent to the original definition. We didn't do that, because why bother if
-the correct thing gets inferred anyway.
-
-Another thing we could do is define an auxiliary function with a type signature and explicit
-'Opaque' while still having explicit polymorphism:
-
-    ifThenElse :: Bool -> Opaque val a -> Opaque val a -> Opaque val a
-    ifThenElse b x y = if b then x else y
-
-    toBuiltinMeaning IfThenElse =
-        makeBuiltinMeaning
-            ifThenElse
-            <costingFunction>
-
-This achieves the same, but note how @a@ is now an argument to 'Opaque' rather than the entire type
-of an argument. In order for this definition to elaborate to the same type as before @a@ needs to be
-instantiated to just @Var0@, as opposed to @Opaque val Var0@, because the 'Opaque' part is
-already there, so this is what the elaboration machinery does.
+and it would be equivalent to the original definition, but note how @a@ is now an argument to
+'Opaque' rather than the entire type of an argument. In order for this definition to elaborate to
+the same type as before @a@ needs to be instantiated to just @Var0@, as opposed to @Opaque val
+Var0@, because the 'Opaque' part is already there, so this is what the elaboration machinery does.
 
 So regardless of which method of defining 'IfThenElse' we choose, the type of its denotation gets
 elaborated to the same
@@ -539,16 +589,19 @@ which is the Plutus type of the 'IfThenElse' builtin.
 
 It's of course allowed to have multiple type variables, e.g. in the following snippet:
 
-    toBuiltinMeaning Const =
-        makeBuiltinMeaning
-            Prelude.const
+    toBuiltinMeaning _ Const =
+        let constDenotation :: a -> b -> a
+            constDenotation = Prelude.const
+            {-# INLINE constDenotation #-}
+        in makeBuiltinMeaning
+            constDenotation
             <costingFunction>
 
-the Haskell type of 'const' gets inferred as
+the Haskell type of 'const' is
 
     forall a b. a -> b -> a
 
-and the elaboration machinery turns that into
+which the elaboration machinery turns into
 
     Opaque val Var0 -> Opaque val Var1 -> Opaque val Var0
 
@@ -562,35 +615,40 @@ the elaboration machinery wouldn't make a fuss about that.
 
 As a final simple example, consider
 
-    toBuiltinMeaning Trace =
-        makeBuiltinMeaning
-            (\text a -> a <$ emit text)
+    toBuiltinMeaning _ Trace =
+        let traceDenotation :: Text -> a -> BuiltinResult a
+            traceDenotation text a = a <$ emit text
+            {-# INLINE traceDenotation #-}
+        in makeBuiltinMeaning
+            traceDenotation
             <costingFunction>
 
-from [How to add a built-in function: simple cases]. The inferred type of the denotation is
+from [How to add a built-in function: simple cases]. The type of the denotation is
 
-    forall a. Text -> a -> Emitter a
+    forall a. Text -> a -> BuiltinResult a
 
 which elaborates to
 
-    Text -> Opaque val Var0 -> Emitter (Opaque val Var0)
+    Text -> Opaque val Var0 -> BuiltinResult (Opaque val Var0)
 
-Elaboration machinery is able to look under 'Emitter' and 'EvaluationResult' even if there's a type
-variable inside that does not appear anywhere else in the type signature, for example the inferred
-type of the denotation in
+Elaboration machinery is able to look under 'BuiltinResult' even if there's a type variable inside
+that does not appear anywhere else in the type signature, for example the type of the denotation in
 
-    toBuiltinMeaning ErrorPrime =
-        makeBuiltinMeaning
-            EvaluationFailure
+    toBuiltinMeaning _ ErrorPrime =
+        let errorPrimeDenotation :: BuiltinResult a
+            errorPrimeDenotation = evaluationFailure
+            {-# INLINE errorPrimeDenotation #-}
+        in makeBuiltinMeaning
+            errorPrimeDenotation
             <costingFunction>
 
 is
 
-    forall a. EvaluationResult a
+    forall a. BuiltinResult a
 
 which gets elaborated to
 
-    EvaluationResult (Opaque val Var0)
+    BuiltinResult (Opaque val Var0)
 
 from which the final Plutus type of the builtin is computed:
 
@@ -606,9 +664,12 @@ Now let's talk about more complicated built-in functions.
 @Opaque val VarN@ and we learned that this type can be used directly as opposed to being inferred.
 However there exist more ways to use 'Opaque' explicitly. Here's a simple example:
 
-    toBuiltinMeaning IdAssumeBool =
-        makeBuiltinMeaning
-            (Prelude.id :: Opaque val Bool -> Opaque val Bool)
+    toBuiltinMeaning _ IdAssumeBool =
+        let idAssumeBoolDenotation :: Opaque val Bool -> Opaque val Bool
+            idAssumeBoolDenotation = Prelude.id
+            {-# INLINE idAssumeBoolDenotation #-}
+        in makeBuiltinMeaning
+            idAssumeBoolDenotation
             <costingFunction>
 
 This creates a built-in function whose Plutus type is
@@ -617,9 +678,12 @@ This creates a built-in function whose Plutus type is
 
 i.e. the Plutus type signature of the built-in function is the same as with
 
-    toBuiltinMeaning IdBool =
-        makeBuiltinMeaning
-            (Prelude.id :: Bool -> Bool)
+    toBuiltinMeaning _ IdBool =
+        let idBoolDenotation :: Bool -> Bool
+            idBoolDenotation = Prelude.id
+            {-# INLINE idBoolDenotation #-}
+        in makeBuiltinMeaning
+            idBoolDenotation
             <costingFunction>
 
 but the two evaluate differently: the former takes a value and returns it right away while the
@@ -637,20 +701,19 @@ makes it possible to unlift @val@ as a constant or lift a constant back into @va
 reason, wanted to have 'Opaque' in the type signature of the denotation, but still unlift the
 argument as a 'Bool', we could do that:
 
-    toBuiltinMeaning IdAssumeCheckBool =
-        makeBuiltinMeaning
-            idAssumeCheckBoolPlc
+    toBuiltinMeaning _ IdAssumeCheckBool =
+        let idAssumeCheckBoolDenotation :: Opaque val Bool -> BuiltinResult Bool
+            idAssumeCheckBoolDenotation val = asConstant val of
+                Right (Some (ValueOf DefaultUniBool b)) -> pure b
+                _                                       -> evaluationFailure
+            {-# INLINE idAssumeCheckBoolDenotation #-}
+        in makeBuiltinMeaning
+            idAssumeCheckBoolDenotation
             <costingFunction>
-      where
-        idAssumeCheckBoolPlc :: Opaque val Bool -> EvaluationResult Bool
-        idAssumeCheckBoolPlc val =
-            case asConstant val of
-                Right (Some (ValueOf DefaultUniBool b)) -> EvaluationSuccess b
-                _                                       -> EvaluationFailure
 
 Here in the denotation we unlift the given value as a constant, check that its type tag is
 'DefaultUniBool' and return the unlifted 'Bool'. If any of that fails, we return an explicit
-'EvaluationFailure'.
+'evaluationFailure'.
 
 This achieves almost the same as 'IdBool', which keeps all the bookkeeping behind the scenes, but
 there is a minor difference: in case of error its message is ignored. It would be easy to allow for
@@ -675,15 +738,15 @@ The difference is that 'Opaque' is a wrapper around an arbitrary value and 'Some
 wrapper around a constant. 'SomeConstant' allows one to automatically unlift an argument of a
 built-in function as a constant with all 'asConstant' business kept behind the scenes, for example:
 
-    toBuiltinMeaning IdSomeConstantBool =
-        makeBuiltinMeaning
-            idSomeConstantBoolPlc
+    toBuiltinMeaning _ IdSomeConstantBool =
+        let idSomeConstantBoolDenotation :: SomeConstant uni Bool -> BuiltinResult Bool
+            idSomeConstantBoolDenotation = \case
+                SomeConstant (Some (ValueOf DefaultUniBool b)) -> pure b
+                _                                              -> evaluationFailure
+            {-# INLINE idSomeConstantBoolDenotation #-}
+        in makeBuiltinMeaning
+            idSomeConstantBoolDenotation
             <costingFunction>
-      where
-        idSomeConstantBoolPlc :: SomeConstant uni Bool -> EvaluationResult Bool
-        idSomeConstantBoolPlc = \case
-            SomeConstant (Some (ValueOf DefaultUniBool b)) -> EvaluationSuccess b
-            _                                              -> EvaluationFailure
 
 Note how we no longer call 'asConstant' manually, but still manually match on 'DefaultUniBool'.
 
@@ -692,29 +755,31 @@ However it's not always possible to use automatic unlifting, see next.
 
 4. If we try to define the following built-in function:
 
-    toBuiltinMeaning NullList =
-        makeBuiltinMeaning
-            (null :: [a] -> Bool)
+    toBuiltinMeaning _ NullList =
+        let nullListDenotation :: [a] -> Bool
+            nullListDenotation = null
+            {-# INLINE nullListDenotation #-}
+        in makeBuiltinMeaning
+            nullListDenotation
             <costingFunction>
 
 we'll get an error, saying that a polymorphic built-in type can't be applied to a type variable.
-It's not impossible to make it work, see Note [Unlifting values of built-in types], but not in the
-general case, plus it has to be very inefficient.
+It's not impossible to make it work, see Note [Unlifting a term as a value of a built-in type], but
+not in the general case, plus it has to be very inefficient.
 
 Instead we have to use 'SomeConstant' to automatically unlift the argument as a constant and then
 check that the value inside of it is a list (by matching on the type tag):
 
-    toBuiltinMeaning NullList =
-        makeBuiltinMeaning
-            nullPlc
+    toBuiltinMeaning _ NullList =
+        let nullListDenotation :: SomeConstant uni [a] -> BuiltinResult Bool
+            nullListDenotation (SomeConstant (Some (ValueOf uniListA xs))) = do
+                case uniListA of
+                    DefaultUniList _ -> pure $ null xs
+                    _ -> throwing _StructuralUnliftingError "Expected a list but got something else"
+            {-# INLINE nullListDenotation #-}
+        in makeBuiltinMeaning
+            nullListDenotation
             <costingFunction>
-        where
-          nullPlc :: SomeConstant uni [a] -> EvaluationResult Bool
-          nullPlc (SomeConstant (Some (ValueOf uniListA xs))) = do
-              DefaultUniList _ <- pure uniListA
-              pure $ null xs
-
-('EvaluationResult' has a 'MonadFail' instance allowing us to use the @<pat> <- pure <expr>@ idiom)
 
 As before, we have to match on the type tag, because there's no relation between @rep@ from
 @SomeConstant uni rep@ and the constant that the built-in function actually receives at runtime
@@ -724,15 +789,18 @@ in any way.
 
 Here's a similar built-in function:
 
-    toBuiltinMeaning FstPair =
-        makeBuiltinMeaning
-            fstPlc
+    toBuiltinMeaning _ FstPair =
+        let fstPairDenotation :: SomeConstant uni (a, b) -> BuiltinResult (Opaque val a)
+            fstPairDenotation (SomeConstant (Some (ValueOf uniPairAB xy))) = do
+                case uniPairAB of
+                    DefaultUniPair uniA _ ->              -- [1]
+                        pure . fromValueOf uniA $ fst xy  -- [2]
+                    _ ->
+                        throwing _StructuralUnliftingError "Expected a pair but got something else"
+            {-# INLINE fstPairDenotation #-}
+        in makeBuiltinMeaning
+            fstPairDenotation
             <costingFunction>
-        where
-          fstPlc :: SomeConstant uni (a, b) -> EvaluationResult (Opaque val a)
-          fstPlc (SomeConstant (Some (ValueOf uniPairAB xy))) = do
-              DefaultUniPair uniA _ <- pure uniPairAB  -- [1]
-              pure . fromValueOf uniA $ fst xy         -- [2]
 
 In this definition we extract the first element of a pair by checking that the given constant is
 indeed a pair [1] and lifting its first element into @val@ using the type tag for the first
@@ -741,17 +809,19 @@ element [2] (extracted from the type tag for the whole pair constant [1]).
 Note that it's fine to mix automatic unlifting for polymorphism not related to built-in types and
 manual unlifting for arguments having non-monomorphized polymorphic built-in types, for example:
 
-    toBuiltinMeaning ChooseList =
-        makeBuiltinMeaning
-            choosePlc
+    toBuiltinMeaning _ ChooseList =
+        let chooseListDenotation :: SomeConstant uni [a] -> b -> b -> BuiltinResult b
+            chooseListDenotation (SomeConstant (Some (ValueOf uniListA xs))) a b = do
+                case uniListA of
+                    DefaultUniList _ -> pure $ case xs of
+                        []    -> a
+                        _ : _ -> b
+                    _ -> throwing _StructuralUnliftingError "Expected a list but got something else"
+            {-# INLINE chooseListDenotation #-}
+        in makeBuiltinMeaning
+            chooseListDenotation
+            (runCostingFunThreeArguments . paramChooseList)
             <costingFunction>
-        where
-          choosePlc :: SomeConstant uni [a] -> b -> b -> EvaluationResult b
-          choosePlc (SomeConstant (Some (ValueOf uniListA xs))) a b = do
-            DefaultUniList _ <- pure uniListA
-            pure $ case xs of
-                []    -> a
-                _ : _ -> b
 
 Here @a@ appears inside @[]@, which is a polymorphic built-in type, and so we have to use
 'SomeConstant' and check that the given constant is indeed a list, while @b@ doesn't appear inside
@@ -760,19 +830,23 @@ machinery will do it for us.
 
 Our final example is this:
 
-    toBuiltinMeaning MkCons =
-        makeBuiltinMeaning
-            consPlc
+    toBuiltinMeaning _ MkCons =
+        let mkConsDenotation
+                :: SomeConstant uni a -> SomeConstant uni [a] -> BuiltinResult (Opaque val [a])
+            mkConsDenotation
+              (SomeConstant (Some (ValueOf uniA x)))
+              (SomeConstant (Some (ValueOf uniListA xs))) = do
+                case uniListA of
+                    DefaultUniList uniA' -> case uniA `geq` uniA' of       -- [1]
+                        Just Refl ->                                       -- [2]
+                            pure . fromValueOf uniListA $ x : xs           -- [3]
+                        _ -> throwing _StructuralUnliftingError
+                            "The type of the value does not match the type of elements in the list"
+                    _ -> throwing _StructuralUnliftingError "Expected a list but got something else"
+            {-# INLINE mkConsDenotation #-}
+        in makeBuiltinMeaning
+            mkConsDenotation
             <costingFunction>
-        where
-          consPlc
-              :: SomeConstant uni a -> SomeConstant uni [a] -> EvaluationResult (Opaque val [a])
-          consPlc
-            (SomeConstant (Some (ValueOf uniA x)))
-            (SomeConstant (Some (ValueOf uniListA xs))) = do
-                DefaultUniList uniA' <- pure uniListA  -- [1]
-                Just Refl <- pure $ uniA `geq` uniA'   -- [2]
-                pure . fromValueOf uniListA $ x : xs   -- [3]
 
 Here we prepend an element to a list [3] after checking that the second argument is indeed a
 list [1] and that the type tag of the element being prepended equals the type tag for elements of
@@ -791,8 +865,8 @@ Plutus type of the builtin:
    get the (Plutus) kind of a builtin head and check two builtin heads for equality
 3. Plutus type normalization tears partially or fully instantiated built-in types (such as
    @[Integer]@) apart and creates a Plutus type application for each Haskell type application
-4. 'Emitter' and 'EvaluationResult' do not appear on the Plutus side, since the logging and failure
-   effects are implicit in Plutus as was discussed above
+4. 'BuiltinResult' does not appear on the Plutus side, since the logging and failure effects are
+   implicit in Plutus as was discussed above
 5. 'Opaque' and 'SomeConstant' both carry a Haskell @rep@ type argument representing some Plutus
    type to be used for Plutus type checking
 
@@ -802,15 +876,16 @@ actually does. Let's look at some examples.
 
 1. The following built-in function unlifts to 'Bool' and lifts the result back:
 
-    toBuiltinMeaning IdIntegerAsBool =
-        makeBuiltinMeaning
-            idIntegerAsBool
+    toBuiltinMeaning _ IdIntegerAsBool =
+        let idIntegerAsBoolDenotation
+                :: SomeConstant uni Integer -> BuiltinResult (SomeConstant uni Integer)
+            idIntegerAsBoolDenotation = \case
+                con@(SomeConstant (Some (ValueOf DefaultUniBool _))) -> pure con
+                _                                                    -> evaluationFailure
+            {-# INLINE idIntegerAsBoolDenotation #-}
+        in makeBuiltinMeaning
+            idIntegerAsBoolDenotation
             <costingFunction>
-      where
-        idIntegerAsBool :: SomeConstant uni Integer -> EvaluationResult (SomeConstant uni Integer)
-        idIntegerAsBool = \case
-            con@(SomeConstant (Some (ValueOf DefaultUniBool _))) -> EvaluationSuccess con
-            _                                                    -> EvaluationFailure
 
 but on the Plutus side its type is
 
@@ -828,14 +903,13 @@ it's respecting its type signature is what causes a failure, not disrespecting i
 2. Another example of an unsafe built-in function is this one that checks whether an argument is a
 constant or not:
 
-    toBuiltinMeaning IsConstant =
-        makeBuiltinMeaning
-            isConstantPlc
+    toBuiltinMeaning _ IsConstant =
+        let isConstantDenotation :: Opaque val a -> Bool
+            isConstantDenotation = isRight . asConstant
+            {-# INLINE isConstantDenotation #-}
+        in makeBuiltinMeaning
+            isConstantDenotation
             <costingFunction>
-      where
-        -- The type signature is just for clarity, it's not required.
-        isConstantPlc :: Opaque val a -> Bool
-        isConstantPlc = isRight . asConstant
 
 Its type on the Plutus side is
 
@@ -847,14 +921,13 @@ built-in function.
 
 3. Finally, we can have a Plutus version of @unsafeCoerce@:
 
-    toBuiltinMeaning UnsafeCoerce =
-        makeBuiltinMeaning
-            unsafeCoercePlc
+    toBuiltinMeaning _ UnsafeCoerce =
+        let unsafeCoerceDenotation :: Opaque val a -> Opaque val b
+            unsafeCoerceDenotation = Opaque . unOpaque
+            {-# INLINE unsafeCoerceDenotation #-}
+        in makeBuiltinMeaning
+            unsafeCoerceDenotation
             <costingFunction>
-      where
-        -- The type signature is just for clarity, it's not required.
-        unsafeCoercePlc :: Opaque val a -> Opaque val b
-        unsafeCoercePlc = Opaque . unOpaque
 
 Its type on the Plutus side is
 
@@ -876,90 +949,73 @@ Read Note [Pattern matching on built-in types] next.
 -}
 
 {- Note [Pattern matching on built-in types]
-At the moment we really only support direct pattern matching on enumeration types: 'Void', 'Unit',
-'Bool' etc. This is because the denotation of a builtin cannot construct general terms (as opposed
-to constants), only juggle the ones that were provided as arguments without changing them.
-So e.g. if we wanted to add the following data type:
+Pattern matching over an enumeration built-in type ('Void', 'Unit', 'Bool' etc) is trivially
+implementable, see the 'IfThenElse' example in Note [How to add a built-in function: simple cases].
+Not so much for algebraic data types with at least one constructor carrying some kind of content.
+For example the @(:)@ constructor of @[a]@ has two arguments (an @a@ and a @[a]@) and all
+constructors of 'Data' carry something (e.g. 'I' carries an 'Integer' and 'Constr' carries an
+@Integer@ and a @[Data]@).
 
-    newtype AnInt = AnInt Int
+In Haskell we'd represent the pattern matching function for lists as follows:
 
-as a built-in type, we wouldn't be able to add the following function as its pattern matcher:
+    caseList f z xs0 = case xs0 of
+       []   -> z
+       x:xs -> f x xs
 
-    matchAnInt :: AnInt -> (Int -> r) -> r
-    matchAnInt (AnInt i) f = f i
+but in the denotation of a built-in function all those @f@, @z@ and @xs0@ are of type @val@, i.e.
+the type of values that the given evaluator uses (e.g. 'CkValue' for the CK machine or 'CekValue'
+for the CEK machine) and we don't know to apply one @val@ to another. We could try to constrain
+@val@ to implement some kind of "apply" function or try to somehow "parse" it into Haskell so that
+it becomes @val -> val@, but even if there was a way of doing either thing, it would be very
+complex and, more importantly, it's just not the job of the builtins machinery to evaluate such
+applications, it's what the actual evaluator is supposed to do.
 
-because currently we cannot express the @f i@ part using the builtins machinery as that would
-require applying an arbitrary Plutus Core function in the denotation of a builtin, which would
-allow us to return arbitrary terms from the builtin application machinery, which is something
-that we originally had, but decided to abandon due to performance concerns.
+Hence we employ a very simple strategy: whenever we want to return an iterated application of a
+@val@ to a bunch of @val@s from a built-in function, we just construct it as is without trying to
+evaluate it and let the evaluator perform all the necessary reductions.
 
-But it's still possible to have @AnInt@ as a built-in type, it's just that instead of trying to
-make its pattern matcher into a builtin we can have the following builtin:
+So if you want to return an application from a built-in function, you need to use 'HeadSpine' at the
+type level and 'headSpine' at the term level, where the latter has the following signature:
 
-    anIntToInt :: AnInt -> Int
-    anIntToInt (AnInt i) = i
+    headSpine :: Opaque val asToB -> [val] -> Opaque (HeadSpine val) b
 
-which fits perfectly well into the builtins machinery.
+'headSpine' takes the head of the application, i.e. a function from @a0@, @a1@ ... @an@ to @b@, and
+applies it to a list of values of respective types, returning a `b`. Whether types match or not is
+not checked, since that would be hard and largely pointless, so don't make mistakes.
 
-Although that becomes annoying for more complex data types. For tuples we need to provide two
-projection functions ('fst' and 'snd') instead of a single pattern matcher, which is not too bad,
-but to get pattern matching on lists we need a more complicated setup. For example we can have three
-built-in functions: @null@, @head@ and @tail@, plus require `Bool` to be in the universe, so that we
-can define an equivalent of
+Back to the pattern matcher for lists:
 
-    matchList :: [a] -> r -> (a -> [a] -> r) -> r
-    matchList xs z f = if null xs then z else f (head xs) (tail xs)
+    caseList f z xs0 = case xs0 of
+       []   -> z
+       x:xs -> f x xs
 
-If a constructor stores more than one value, the corresponding projection function packs them
-into a (possibly nested) pair, for example for
+Here's how we can define it as a built-in function using 'headSpine':
 
-    data Data
-        = Constr Integer [Data]
-        | <...>
+    toBuiltinMeaning _ver CaseList =
+        let caseListDenotation
+                :: Opaque val b
+                -> Opaque val (a -> [a] -> b)
+                -> SomeConstant uni [a]
+                -> BuiltinResult (Opaque (HeadSpine val) b)
+            caseListDenotation z f (SomeConstant (Some (ValueOf uniListA xs0))) = do
+                case uniListA of
+                    DefaultUniList uniA -> pure $ case xs0 of
+                        []     -> headSpine z []                                             -- [1]
+                        x : xs -> headSpine f [fromValueOf uniA x, fromValueOf uniListA xs]  -- [2]
+                    _ ->
+                        throwing _StructuralUnliftingError "Expected a list but got something else"
+            {-# INLINE caseListDenotation #-}
+        in makeBuiltinMeaning
+            caseListDenotation
+            <costingFunction>
 
-we have (pseudocode):
-
-    unConstrData (Constr i ds) = (i, ds)
-
-In order to get pattern matching over 'Data' we need a projection function per constructor as well
-as with lists, but writing (where the @Data@ suffix indicates that a function is a builtin that
-somehow corresponds to a constructor of 'Data')
-
-    if isConstrData d
-        then uncurry fConstr $ unConstrData d
-        else if isMapData d
-            then fMap $ unMapData d
-            else if isListData d
-                then fList $ unListData d
-                else <...>
-
-is tedious and inefficient and so instead we have a single @chooseData@ builtin that matches on
-its @Data@ argument and chooses the appropriate branch (type instantiations and strictness concerns
-are omitted for clarity):
-
-     chooseData
-        (uncurry fConstr $ unConstrData d)
-        (fMap $ unMapData d)
-        (fList $ unListData d)
-        <...>
-        d
-
-which, for example, evaluates to @fMap es@ when @d@ is @Map es@
-
-We decided to handle lists the same way by using @chooseList@ rather than @null@ for consistency.
-
-On the bright side, this encoding of pattern matchers does work, so maybe it's indeed worth to
-prioritize performance over convenience, especially given the fact that performance is of a concern
-to every single end user while the inconvenience is only a concern for the compiler writers and
-we don't add complex built-in types too often.
-
-It is not however clear if we can't get more performance gains by defining matchers directly as
-higher-order built-in functions compared to forbidding them. Particularly since if higher-order
-built-in functions were allowed, we could define not only matches, but also folds and keep recursion
-on the Haskell side for conversions from 'Data', which can potentially have a huge positive impact
-on performance.
-
-Read Note [Representable built-in functions over polymorphic built-in types] next.
+All the unlifting logic is the same as with, say, 'NullList' from
+Note [How to add a built-in function: complicated cases], the only things that are different are [1]
+and [2]. In [2] we have an iterated application of the given function @f@ to the head of the list
+@x@ (lifted from a constant value to @val@ via 'fromValueOf') and the tail of the list @xs@ (lifted
+to @val@ the same way). In [1] we return the given @z@, but since we need to return a 'HeadSpine'
+(required by [2]), we have to use 'headSpine' just like in [2] except with an empty spine, since @z@
+isn't applied to anything.
 -}
 
 {- Note [Representable built-in functions over polymorphic built-in types]
@@ -1016,7 +1072,7 @@ Finally,
 is representable (because we can require arguments to be constants carrying universes with them,
 which we can use to construct the resulting universe), but is still a lie, because instantiating
 that builtin with non-built-in types is possible and so the PLC type checker won't throw on such
-an instantiation, which will become 'EvalutionFailure' at runtime the moment unlifting of a
+an instantiation, which will become 'evalutionFailure' at runtime the moment unlifting of a
 non-constant is attempted when a constant is expected.
 
 So could we still get @nil@ or a safe version of @comma@ somehow? Well, we could have this
@@ -1039,133 +1095,263 @@ and then defining
 and then the Plutus Tx compiler can provide a type class or something for constructing singletons
 for built-in types.
 
-This was investigated in https://github.com/input-output-hk/plutus/pull/4337 but we decided not to
+This was investigated in https://github.com/IntersectMBO/plutus/pull/4337 but we decided not to
 do it quite yet, even though it worked (the Plutus Tx part wasn't implemented).
 -}
+
+{- Note [Structural vs operational errors within builtins]
+See the Haddock of 'EvaluationError' to understand why we sometimes use use @throwing
+_StructuralUnliftingError@ (to throw a "structural" evaluation error) and sometimes use 'fail' (to
+throw an "operational" evaluation error). Please respect the distinction when adding new built-in
+functions.
+-}
+
+-- | Take a function and a list of arguments and apply the former to the latter.
+headSpine :: Opaque val asToB -> [val] -> Opaque (HeadSpine val) b
+headSpine (Opaque f) = Opaque . \case
+    []      -> HeadOnly f
+    x0 : xs ->
+        -- It's critical to use 'foldr' here, so that deforestation kicks in.
+        -- See Note [Definition of foldl'] in "GHC.List" and related Notes around for an explanation
+        -- of the trick.
+        HeadSpine f $ foldr (\x2 r x1 -> SpineCons x1 $ r x2) SpineLast xs x0
+{-# INLINE headSpine #-}
 
 instance uni ~ DefaultUni => ToBuiltinMeaning uni DefaultFun where
     type CostingPart uni DefaultFun = BuiltinCostModel
 
-    data BuiltinVersion DefaultFun = DefaultFunV1 | DefaultFunV2
-        deriving stock (Enum, Bounded, Show)
+    {- | Allow different variants of builtins with different implementations, and
+       possibly different semantics.  Note that DefaultFunSemanticsVariantA,
+       DefaultFunSemanticsVariantB etc. do not correspond directly to PlutusV1,
+       PlutusV2 etc. in plutus-ledger-api: see Note [Builtin semantics variants]. -}
+    data BuiltinSemanticsVariant DefaultFun
+        = DefaultFunSemanticsVariantA
+        | DefaultFunSemanticsVariantB
+        | DefaultFunSemanticsVariantC
+        deriving stock (Eq, Ord, Enum, Bounded, Show, Generic)
+        deriving anyclass (NFData, NoThunks)
 
     -- Integers
     toBuiltinMeaning
         :: forall val. HasMeaningIn uni val
-        => BuiltinVersion DefaultFun -> DefaultFun -> BuiltinMeaning val BuiltinCostModel
-    toBuiltinMeaning _ver AddInteger =
-        makeBuiltinMeaning
-            ((+) @Integer)
+        => BuiltinSemanticsVariant DefaultFun
+        -> DefaultFun
+        -> BuiltinMeaning val BuiltinCostModel
+
+    toBuiltinMeaning _semvar AddInteger =
+        let addIntegerDenotation :: Integer -> Integer -> Integer
+            addIntegerDenotation = (+)
+            {-# INLINE addIntegerDenotation #-}
+        in makeBuiltinMeaning
+            addIntegerDenotation
             (runCostingFunTwoArguments . paramAddInteger)
-    toBuiltinMeaning _ver SubtractInteger =
-        makeBuiltinMeaning
-            ((-) @Integer)
+
+    toBuiltinMeaning _semvar SubtractInteger =
+        let subtractIntegerDenotation :: Integer -> Integer -> Integer
+            subtractIntegerDenotation = (-)
+            {-# INLINE subtractIntegerDenotation #-}
+        in makeBuiltinMeaning
+            subtractIntegerDenotation
             (runCostingFunTwoArguments . paramSubtractInteger)
-    toBuiltinMeaning _ver MultiplyInteger =
-        makeBuiltinMeaning
-            ((*) @Integer)
+
+    toBuiltinMeaning _semvar MultiplyInteger =
+        let multiplyIntegerDenotation :: Integer -> Integer -> Integer
+            multiplyIntegerDenotation = (*)
+            {-# INLINE multiplyIntegerDenotation #-}
+        in makeBuiltinMeaning
+            multiplyIntegerDenotation
             (runCostingFunTwoArguments . paramMultiplyInteger)
-    toBuiltinMeaning _ver DivideInteger =
-        makeBuiltinMeaning
-            (nonZeroArg div)
+
+    toBuiltinMeaning _semvar DivideInteger =
+        let divideIntegerDenotation :: Integer -> Integer -> BuiltinResult Integer
+            divideIntegerDenotation = nonZeroSecondArg div
+            {-# INLINE divideIntegerDenotation #-}
+        in makeBuiltinMeaning
+            divideIntegerDenotation
             (runCostingFunTwoArguments . paramDivideInteger)
-    toBuiltinMeaning _ver QuotientInteger =
-        makeBuiltinMeaning
-            (nonZeroArg quot)
+
+    toBuiltinMeaning _semvar QuotientInteger =
+        let quotientIntegerDenotation :: Integer -> Integer -> BuiltinResult Integer
+            quotientIntegerDenotation = nonZeroSecondArg quot
+            {-# INLINE quotientIntegerDenotation #-}
+        in makeBuiltinMeaning
+            quotientIntegerDenotation
             (runCostingFunTwoArguments . paramQuotientInteger)
-    toBuiltinMeaning _ver RemainderInteger =
-        makeBuiltinMeaning
-            (nonZeroArg rem)
+
+    toBuiltinMeaning _semvar RemainderInteger =
+        let remainderIntegerDenotation :: Integer -> Integer -> BuiltinResult Integer
+            remainderIntegerDenotation = nonZeroSecondArg rem
+            {-# INLINE remainderIntegerDenotation #-}
+        in makeBuiltinMeaning
+            remainderIntegerDenotation
             (runCostingFunTwoArguments . paramRemainderInteger)
-    toBuiltinMeaning _ver ModInteger =
-        makeBuiltinMeaning
-            (nonZeroArg mod)
+
+    toBuiltinMeaning _semvar ModInteger =
+        let modIntegerDenotation :: Integer -> Integer -> BuiltinResult Integer
+            modIntegerDenotation = nonZeroSecondArg mod
+            {-# INLINE modIntegerDenotation #-}
+        in makeBuiltinMeaning
+            modIntegerDenotation
             (runCostingFunTwoArguments . paramModInteger)
-    toBuiltinMeaning _ver EqualsInteger =
-        makeBuiltinMeaning
-            ((==) @Integer)
+
+    toBuiltinMeaning _semvar EqualsInteger =
+        let equalsIntegerDenotation :: Integer -> Integer -> Bool
+            equalsIntegerDenotation = (==)
+            {-# INLINE equalsIntegerDenotation #-}
+        in makeBuiltinMeaning
+            equalsIntegerDenotation
             (runCostingFunTwoArguments . paramEqualsInteger)
-    toBuiltinMeaning _ver LessThanInteger =
-        makeBuiltinMeaning
-            ((<) @Integer)
+
+    toBuiltinMeaning _semvar LessThanInteger =
+        let lessThanIntegerDenotation :: Integer -> Integer -> Bool
+            lessThanIntegerDenotation = (<)
+            {-# INLINE lessThanIntegerDenotation #-}
+        in makeBuiltinMeaning
+            lessThanIntegerDenotation
             (runCostingFunTwoArguments . paramLessThanInteger)
-    toBuiltinMeaning _ver LessThanEqualsInteger =
-        makeBuiltinMeaning
-            ((<=) @Integer)
+
+    toBuiltinMeaning _semvar LessThanEqualsInteger =
+        let lessThanEqualsIntegerDenotation :: Integer -> Integer -> Bool
+            lessThanEqualsIntegerDenotation = (<=)
+            {-# INLINE lessThanEqualsIntegerDenotation #-}
+        in makeBuiltinMeaning
+            lessThanEqualsIntegerDenotation
             (runCostingFunTwoArguments . paramLessThanEqualsInteger)
+
     -- Bytestrings
-    toBuiltinMeaning _ver AppendByteString =
-        makeBuiltinMeaning
-            BS.append
+    toBuiltinMeaning _semvar AppendByteString =
+        let appendByteStringDenotation :: BS.ByteString -> BS.ByteString -> BS.ByteString
+            appendByteStringDenotation = BS.append
+            {-# INLINE appendByteStringDenotation #-}
+        in makeBuiltinMeaning
+            appendByteStringDenotation
             (runCostingFunTwoArguments . paramAppendByteString)
-    toBuiltinMeaning ver ConsByteString =
-        -- The costing function is the same for all versions of this builtin, but since the
-        -- denotation of the builtin accepts constants of different types ('Integer' vs 'Word8'),
-        -- the costing function needs to by polymorphic over the type of constant.
+
+    -- See Note [Builtin semantics variants]
+    toBuiltinMeaning semvar ConsByteString =
+        -- The costing function is the same for all variants of this builtin,
+        -- but since the denotation of the builtin accepts constants of
+        -- different types ('Integer' vs 'Word8'), the costing function needs to
+        -- by polymorphic over the type of constant.
         let costingFun
                 :: ExMemoryUsage a => BuiltinCostModel -> a -> BS.ByteString -> ExBudgetStream
             costingFun = runCostingFunTwoArguments . paramConsByteString
-        -- See Note [Versioned builtins]
-        in case ver of
-            DefaultFunV1 -> makeBuiltinMeaning
-               @(Integer -> BS.ByteString -> BS.ByteString)
-               (\n xs -> BS.cons (fromIntegral @Integer n) xs)
-               costingFun
-            -- For versions other (i.e. larger) than V1, the first input must be in range [0..255].
-            -- See Note [How to add a built-in function: simple cases]
-            _ -> makeBuiltinMeaning
-              @(Word8 -> BS.ByteString -> BS.ByteString)
-              BS.cons
-              costingFun
-    toBuiltinMeaning _ver SliceByteString =
-        makeBuiltinMeaning
-            (\start n xs -> BS.take n (BS.drop start xs))
-            (runCostingFunThreeArguments . paramSliceByteString)
-    toBuiltinMeaning _ver LengthOfByteString =
-        makeBuiltinMeaning
-            BS.length
-            (runCostingFunOneArgument . paramLengthOfByteString)
-    toBuiltinMeaning _ver IndexByteString =
-        makeBuiltinMeaning
-            (\xs n -> if n >= 0 && n < BS.length xs then EvaluationSuccess $ toInteger $ BS.index xs n else EvaluationFailure)
-            -- TODO: fix the mess above with `indexMaybe` from `ghc>=9.2,bytestring >= 0.11.0.0`.
-            (runCostingFunTwoArguments . paramIndexByteString)
-    toBuiltinMeaning _ver EqualsByteString =
-        makeBuiltinMeaning
-            ((==) @BS.ByteString)
-            (runCostingFunTwoArguments . paramEqualsByteString)
-    toBuiltinMeaning _ver LessThanByteString =
-        makeBuiltinMeaning
-            ((<) @BS.ByteString)
-            (runCostingFunTwoArguments . paramLessThanByteString)
-    toBuiltinMeaning _ver LessThanEqualsByteString =
-        makeBuiltinMeaning
-            ((<=) @BS.ByteString)
-            (runCostingFunTwoArguments . paramLessThanEqualsByteString)
-    -- Cryptography and hashes
-    toBuiltinMeaning _ver Sha2_256 =
-        makeBuiltinMeaning
-            Hash.sha2_256
-            (runCostingFunOneArgument . paramSha2_256)
-    toBuiltinMeaning _ver Sha3_256 =
-        makeBuiltinMeaning
-            Hash.sha3_256
-            (runCostingFunOneArgument . paramSha3_256)
-    toBuiltinMeaning _ver Blake2b_256 =
-        makeBuiltinMeaning
-            Hash.blake2b_256
-            (runCostingFunOneArgument . paramBlake2b_256)
-    toBuiltinMeaning ver VerifyEd25519Signature =
-        let verifyEd25519Signature =
-                case ver of
-                  DefaultFunV1 -> verifyEd25519Signature_V1
-                  _            -> verifyEd25519Signature_V2
+            {-# INLINE costingFun #-}
+            consByteStringMeaning_V1 =
+                let consByteStringDenotation :: Integer -> BS.ByteString -> BS.ByteString
+                    consByteStringDenotation n = BS.cons (fromIntegral n)
+                    -- Earlier instructions say never to use `fromIntegral` in the definition of a
+                    -- builtin; however in this case it reduces its argument modulo 256 to get a
+                    -- `Word8`, which is exactly what we want.
+                    {-# INLINE consByteStringDenotation #-}
+                in makeBuiltinMeaning
+                    consByteStringDenotation
+                    costingFun
+            -- For builtin semantics variants larger than 'DefaultFunSemanticsVariantA', the first
+            -- input must be in range @[0..255]@.
+            consByteStringMeaning_V2 =
+                let consByteStringDenotation :: Word8 -> BS.ByteString -> BS.ByteString
+                    consByteStringDenotation = BS.cons
+                    {-# INLINE consByteStringDenotation #-}
+                in makeBuiltinMeaning
+                    consByteStringDenotation
+                    costingFun
+        in case semvar of
+            DefaultFunSemanticsVariantA -> consByteStringMeaning_V1
+            DefaultFunSemanticsVariantB -> consByteStringMeaning_V1
+            DefaultFunSemanticsVariantC -> consByteStringMeaning_V2
+
+    toBuiltinMeaning _semvar SliceByteString =
+        let sliceByteStringDenotation :: Int -> Int -> BS.ByteString -> BS.ByteString
+            sliceByteStringDenotation start n xs = BS.take n (BS.drop start xs)
+            {-# INLINE sliceByteStringDenotation #-}
         in makeBuiltinMeaning
-           verifyEd25519Signature
-           -- Benchmarks indicate that the two versions have very similar
-           -- execution times, so it's safe to use the same costing function for
-           -- both.
-           (runCostingFunThreeArguments . paramVerifyEd25519Signature)
+            sliceByteStringDenotation
+            (runCostingFunThreeArguments . paramSliceByteString)
+
+    toBuiltinMeaning _semvar LengthOfByteString =
+        let lengthOfByteStringDenotation :: BS.ByteString -> Int
+            lengthOfByteStringDenotation = BS.length
+            {-# INLINE lengthOfByteStringDenotation #-}
+        in makeBuiltinMeaning
+            lengthOfByteStringDenotation
+            (runCostingFunOneArgument . paramLengthOfByteString)
+
+    toBuiltinMeaning _semvar IndexByteString =
+        let indexByteStringDenotation :: BS.ByteString -> Int -> BuiltinResult Word8
+            indexByteStringDenotation xs n = do
+                unless (n >= 0 && n < BS.length xs) $
+                    -- See Note [Structural vs operational errors within builtins].
+                    -- The arguments are going to be printed in the "cause" part of the error
+                    -- message, so we don't need to repeat them here.
+                    fail "Index out of bounds"
+                pure $ BS.index xs n
+            {-# INLINE indexByteStringDenotation #-}
+        in makeBuiltinMeaning
+            indexByteStringDenotation
+            (runCostingFunTwoArguments . paramIndexByteString)
+
+    toBuiltinMeaning _semvar EqualsByteString =
+        let equalsByteStringDenotation :: BS.ByteString -> BS.ByteString -> Bool
+            equalsByteStringDenotation = (==)
+            {-# INLINE equalsByteStringDenotation #-}
+        in makeBuiltinMeaning
+            equalsByteStringDenotation
+            (runCostingFunTwoArguments . paramEqualsByteString)
+
+    toBuiltinMeaning _semvar LessThanByteString =
+        let lessThanByteStringDenotation :: BS.ByteString -> BS.ByteString -> Bool
+            lessThanByteStringDenotation = (<)
+            {-# INLINE lessThanByteStringDenotation #-}
+        in makeBuiltinMeaning
+            lessThanByteStringDenotation
+            (runCostingFunTwoArguments . paramLessThanByteString)
+
+    toBuiltinMeaning _semvar LessThanEqualsByteString =
+        let lessThanEqualsByteStringDenotation :: BS.ByteString -> BS.ByteString -> Bool
+            lessThanEqualsByteStringDenotation = (<=)
+            {-# INLINE lessThanEqualsByteStringDenotation #-}
+        in makeBuiltinMeaning
+            lessThanEqualsByteStringDenotation
+            (runCostingFunTwoArguments . paramLessThanEqualsByteString)
+
+    -- Cryptography and hashes
+    toBuiltinMeaning _semvar Sha2_256 =
+        let sha2_256Denotation :: BS.ByteString -> BS.ByteString
+            sha2_256Denotation = Hash.sha2_256
+            {-# INLINE sha2_256Denotation #-}
+        in makeBuiltinMeaning
+            sha2_256Denotation
+            (runCostingFunOneArgument . paramSha2_256)
+
+    toBuiltinMeaning _semvar Sha3_256 =
+        let sha3_256Denotation :: BS.ByteString -> BS.ByteString
+            sha3_256Denotation = Hash.sha3_256
+            {-# INLINE sha3_256Denotation #-}
+        in makeBuiltinMeaning
+            sha3_256Denotation
+            (runCostingFunOneArgument . paramSha3_256)
+
+    toBuiltinMeaning _semvar Blake2b_256 =
+        let blake2b_256Denotation :: BS.ByteString -> BS.ByteString
+            blake2b_256Denotation = Hash.blake2b_256
+            {-# INLINE blake2b_256Denotation #-}
+        in makeBuiltinMeaning
+            blake2b_256Denotation
+            (runCostingFunOneArgument . paramBlake2b_256)
+
+    toBuiltinMeaning _semvar VerifyEd25519Signature =
+        let verifyEd25519SignatureDenotation
+                :: BS.ByteString -> BS.ByteString -> BS.ByteString -> BuiltinResult Bool
+            verifyEd25519SignatureDenotation = verifyEd25519Signature
+            {-# INLINE verifyEd25519SignatureDenotation #-}
+        in makeBuiltinMeaning
+            verifyEd25519SignatureDenotation
+            -- Benchmarks indicate that the two variants have very similar
+            -- execution times, so it's safe to use the same costing function for
+            -- both.
+            (runCostingFunThreeArguments . paramVerifyEd25519Signature)
+
     {- Note [ECDSA secp256k1 signature verification].  An ECDSA signature
        consists of a pair of values (r,s), and for each value of r there are in
        fact two valid values of s, one effectively the negative of the other.
@@ -1182,309 +1368,801 @@ instance uni ~ DefaultUni => ToBuiltinMeaning uni DefaultFun where
 
           https://github.com/bitcoin-core/secp256k1.
      -}
-    toBuiltinMeaning _ver VerifyEcdsaSecp256k1Signature =
-        makeBuiltinMeaning
-            verifyEcdsaSecp256k1Signature
+    toBuiltinMeaning _semvar VerifyEcdsaSecp256k1Signature =
+        let verifyEcdsaSecp256k1SignatureDenotation
+                :: BS.ByteString -> BS.ByteString -> BS.ByteString -> BuiltinResult Bool
+            verifyEcdsaSecp256k1SignatureDenotation = verifyEcdsaSecp256k1Signature
+            {-# INLINE verifyEcdsaSecp256k1SignatureDenotation #-}
+        in makeBuiltinMeaning
+            verifyEcdsaSecp256k1SignatureDenotation
             (runCostingFunThreeArguments . paramVerifyEcdsaSecp256k1Signature)
-    toBuiltinMeaning _ver VerifySchnorrSecp256k1Signature =
-        makeBuiltinMeaning
-            verifySchnorrSecp256k1Signature
+
+    toBuiltinMeaning _semvar VerifySchnorrSecp256k1Signature =
+        let verifySchnorrSecp256k1SignatureDenotation
+                :: BS.ByteString -> BS.ByteString -> BS.ByteString -> BuiltinResult Bool
+            verifySchnorrSecp256k1SignatureDenotation = verifySchnorrSecp256k1Signature
+            {-# INLINE verifySchnorrSecp256k1SignatureDenotation #-}
+        in makeBuiltinMeaning
+            verifySchnorrSecp256k1SignatureDenotation
             (runCostingFunThreeArguments . paramVerifySchnorrSecp256k1Signature)
+
     -- Strings
-    toBuiltinMeaning _ver AppendString =
-        makeBuiltinMeaning
-            ((<>) @Text)
+    toBuiltinMeaning _semvar AppendString =
+        let appendStringDenotation :: Text -> Text -> Text
+            appendStringDenotation = (<>)
+            {-# INLINE appendStringDenotation #-}
+        in makeBuiltinMeaning
+            appendStringDenotation
             (runCostingFunTwoArguments . paramAppendString)
-    toBuiltinMeaning _ver EqualsString =
-        makeBuiltinMeaning
-            ((==) @Text)
+
+    toBuiltinMeaning _semvar EqualsString =
+        let equalsStringDenotation :: Text -> Text -> Bool
+            equalsStringDenotation = (==)
+            {-# INLINE equalsStringDenotation #-}
+        in makeBuiltinMeaning
+            equalsStringDenotation
             (runCostingFunTwoArguments . paramEqualsString)
-    toBuiltinMeaning _ver EncodeUtf8 =
-        makeBuiltinMeaning
-            encodeUtf8
+
+    toBuiltinMeaning _semvar EncodeUtf8 =
+        let encodeUtf8Denotation :: Text -> BS.ByteString
+            encodeUtf8Denotation = encodeUtf8
+            {-# INLINE encodeUtf8Denotation #-}
+        in makeBuiltinMeaning
+            encodeUtf8Denotation
             (runCostingFunOneArgument . paramEncodeUtf8)
-    toBuiltinMeaning _ver DecodeUtf8 =
-        makeBuiltinMeaning
-            (reoption @_ @EvaluationResult . decodeUtf8')
+
+    toBuiltinMeaning _semvar DecodeUtf8 =
+        let decodeUtf8Denotation :: BS.ByteString -> BuiltinResult Text
+            decodeUtf8Denotation = eitherToBuiltinResult . decodeUtf8'
+            {-# INLINE decodeUtf8Denotation #-}
+        in makeBuiltinMeaning
+            decodeUtf8Denotation
             (runCostingFunOneArgument . paramDecodeUtf8)
+
     -- Bool
-    toBuiltinMeaning _ver IfThenElse =
-        makeBuiltinMeaning
-            (\b x y -> if b then x else y)
+    toBuiltinMeaning _semvar IfThenElse =
+        let ifThenElseDenotation :: Bool -> a -> a -> a
+            ifThenElseDenotation b x y = if b then x else y
+            {-# INLINE ifThenElseDenotation #-}
+        in makeBuiltinMeaning
+            ifThenElseDenotation
             (runCostingFunThreeArguments . paramIfThenElse)
+
     -- Unit
-    toBuiltinMeaning _ver ChooseUnit =
-        makeBuiltinMeaning
-            (\() a -> a)
+    toBuiltinMeaning _semvar ChooseUnit =
+        let chooseUnitDenotation :: () -> a -> a
+            chooseUnitDenotation () x = x
+            {-# INLINE chooseUnitDenotation #-}
+        in makeBuiltinMeaning
+            chooseUnitDenotation
             (runCostingFunTwoArguments . paramChooseUnit)
+
     -- Tracing
-    toBuiltinMeaning _ver Trace =
-        makeBuiltinMeaning
-            (\text a -> a <$ emit text)
+    toBuiltinMeaning _semvar Trace =
+        let traceDenotation :: Text -> a -> BuiltinResult a
+            traceDenotation text a = a <$ emit text
+            {-# INLINE traceDenotation #-}
+        in makeBuiltinMeaning
+            traceDenotation
             (runCostingFunTwoArguments . paramTrace)
+
     -- Pairs
-    toBuiltinMeaning _ver FstPair =
-        makeBuiltinMeaning
-            fstPlc
+    toBuiltinMeaning _semvar FstPair =
+        let fstPairDenotation :: SomeConstant uni (a, b) -> BuiltinResult (Opaque val a)
+            fstPairDenotation (SomeConstant (Some (ValueOf uniPairAB xy))) =
+                case uniPairAB of
+                    DefaultUniPair uniA _ -> pure . fromValueOf uniA $ fst xy
+                    _                     ->
+                        -- See Note [Structural vs operational errors within builtins].
+                        throwing _StructuralUnliftingError "Expected a pair but got something else"
+            {-# INLINE fstPairDenotation #-}
+        in makeBuiltinMeaning
+            fstPairDenotation
             (runCostingFunOneArgument . paramFstPair)
-        where
-          fstPlc :: SomeConstant uni (a, b) -> EvaluationResult (Opaque val a)
-          fstPlc (SomeConstant (Some (ValueOf uniPairAB xy))) = do
-              DefaultUniPair uniA _ <- pure uniPairAB
-              pure . fromValueOf uniA $ fst xy
-          {-# INLINE fstPlc #-}
-    toBuiltinMeaning _ver SndPair =
-        makeBuiltinMeaning
-            sndPlc
+
+    toBuiltinMeaning _semvar SndPair =
+        let sndPairDenotation :: SomeConstant uni (a, b) -> BuiltinResult (Opaque val b)
+            sndPairDenotation (SomeConstant (Some (ValueOf uniPairAB xy))) =
+                case uniPairAB of
+                    DefaultUniPair _ uniB -> pure . fromValueOf uniB $ snd xy
+                    _                     ->
+                        -- See Note [Structural vs operational errors within builtins].
+                        throwing _StructuralUnliftingError "Expected a pair but got something else"
+            {-# INLINE sndPairDenotation #-}
+        in makeBuiltinMeaning
+            sndPairDenotation
             (runCostingFunOneArgument . paramSndPair)
-        where
-          sndPlc :: SomeConstant uni (a, b) -> EvaluationResult (Opaque val b)
-          sndPlc (SomeConstant (Some (ValueOf uniPairAB xy))) = do
-              DefaultUniPair _ uniB <- pure uniPairAB
-              pure . fromValueOf uniB $ snd xy
-          {-# INLINE sndPlc #-}
+
     -- Lists
-    toBuiltinMeaning _ver ChooseList =
-        makeBuiltinMeaning
-            choosePlc
+    toBuiltinMeaning _semvar ChooseList =
+        let chooseListDenotation :: SomeConstant uni [a] -> b -> b -> BuiltinResult b
+            chooseListDenotation (SomeConstant (Some (ValueOf uniListA xs))) a b =
+                case uniListA of
+                    DefaultUniList _ -> pure $ case xs of
+                        []    -> a
+                        _ : _ -> b
+                    _ ->
+                        -- See Note [Structural vs operational errors within builtins].
+                        throwing _StructuralUnliftingError "Expected a list but got something else"
+            {-# INLINE chooseListDenotation #-}
+        in makeBuiltinMeaning
+            chooseListDenotation
             (runCostingFunThreeArguments . paramChooseList)
-        where
-          choosePlc :: SomeConstant uni [a] -> b -> b -> EvaluationResult b
-          choosePlc (SomeConstant (Some (ValueOf uniListA xs))) a b = do
-            DefaultUniList _ <- pure uniListA
-            pure $ case xs of
-                []    -> a
-                _ : _ -> b
-          {-# INLINE choosePlc #-}
-    toBuiltinMeaning _ver MkCons =
-        makeBuiltinMeaning
-            consPlc
+
+    toBuiltinMeaning _ver CaseList =
+        let caseListDenotation
+                :: Opaque val (LastArg a b)
+                -> Opaque val (a -> [a] -> b)
+                -> SomeConstant uni [a]
+                -> BuiltinResult (Opaque (HeadSpine val) b)
+            caseListDenotation z f (SomeConstant (Some (ValueOf uniListA xs0))) =
+                case uniListA of
+                    DefaultUniList uniA -> pure $ case xs0 of
+                        []     -> headSpine z []
+                        x : xs -> headSpine f [fromValueOf uniA x, fromValueOf uniListA xs]
+                    _ ->
+                        -- See Note [Structural vs operational errors within builtins].
+                        throwing _StructuralUnliftingError "Expected a list but got something else"
+            {-# INLINE caseListDenotation #-}
+        in makeBuiltinMeaning
+            caseListDenotation
+            (runCostingFunThreeArguments . unimplementedCostingFun)
+
+    toBuiltinMeaning _semvar MkCons =
+        let mkConsDenotation
+                :: SomeConstant uni a -> SomeConstant uni [a] -> BuiltinResult (Opaque val [a])
+            mkConsDenotation
+              (SomeConstant (Some (ValueOf uniA x)))
+              (SomeConstant (Some (ValueOf uniListA xs))) =
+                -- See Note [Structural vs operational errors within builtins].
+                case uniListA of
+                    DefaultUniList uniA' -> case uniA `geq` uniA' of
+                        Just Refl -> pure . fromValueOf uniListA $ x : xs
+                        _         -> throwing _StructuralUnliftingError
+                            "The type of the value does not match the type of elements in the list"
+                    _ -> throwing _StructuralUnliftingError "Expected a list but got something else"
+            {-# INLINE mkConsDenotation #-}
+        in makeBuiltinMeaning
+            mkConsDenotation
             (runCostingFunTwoArguments . paramMkCons)
-        where
-          consPlc
-              :: SomeConstant uni a -> SomeConstant uni [a] -> EvaluationResult (Opaque val [a])
-          consPlc
-            (SomeConstant (Some (ValueOf uniA x)))
-            (SomeConstant (Some (ValueOf uniListA xs))) = do
-                DefaultUniList uniA' <- pure uniListA
-                -- Checking that the type of the constant is the same as the type of the elements
-                -- of the unlifted list. Note that there's no way we could enforce this statically
-                -- since in UPLC one can create an ill-typed program that attempts to prepend
-                -- a value of the wrong type to a list.
-                -- Should that rather give us an 'UnliftingError'? For that we need
-                -- https://github.com/input-output-hk/plutus/pull/3035
-                Just Refl <- pure $ uniA `geq` uniA'
-                pure . fromValueOf uniListA $ x : xs
-          {-# INLINE consPlc #-}
-    toBuiltinMeaning _ver HeadList =
-        makeBuiltinMeaning
-            headPlc
+
+    toBuiltinMeaning _semvar HeadList =
+        let headListDenotation :: SomeConstant uni [a] -> BuiltinResult (Opaque val a)
+            headListDenotation (SomeConstant (Some (ValueOf uniListA xs))) =
+                case uniListA of
+                    DefaultUniList uniA -> case xs of
+                        []    -> fail "Expected a non-empty list but got an empty one"
+                        x : _ -> pure $ fromValueOf uniA x
+                    _ -> throwing _StructuralUnliftingError "Expected a list but got something else"
+            {-# INLINE headListDenotation #-}
+        in makeBuiltinMeaning
+            headListDenotation
             (runCostingFunOneArgument . paramHeadList)
-        where
-          headPlc :: SomeConstant uni [a] -> EvaluationResult (Opaque val a)
-          headPlc (SomeConstant (Some (ValueOf uniListA xs))) = do
-              DefaultUniList uniA <- pure uniListA
-              x : _ <- pure xs
-              pure $ fromValueOf uniA x
-          {-# INLINE headPlc #-}
-    toBuiltinMeaning _ver TailList =
-        makeBuiltinMeaning
-            tailPlc
+
+    toBuiltinMeaning _semvar TailList =
+        let tailListDenotation :: SomeConstant uni [a] -> BuiltinResult (Opaque val [a])
+            tailListDenotation (SomeConstant (Some (ValueOf uniListA xs))) =
+                case uniListA of
+                    DefaultUniList _argUni ->
+                      case xs of
+                        []      -> fail "Expected a non-empty list but got an empty one"
+                        _ : xs' -> pure $ fromValueOf uniListA xs'
+                    _ -> throwing _StructuralUnliftingError "Expected a list but got something else"
+            {-# INLINE tailListDenotation #-}
+        in makeBuiltinMeaning
+            tailListDenotation
             (runCostingFunOneArgument . paramTailList)
-        where
-          tailPlc :: SomeConstant uni [a] -> EvaluationResult (Opaque val [a])
-          tailPlc (SomeConstant (Some (ValueOf uniListA xs))) = do
-              DefaultUniList _ <- pure uniListA
-              _ : xs' <- pure xs
-              pure $ fromValueOf uniListA xs'
-          {-# INLINE tailPlc #-}
-    toBuiltinMeaning _ver NullList =
-        makeBuiltinMeaning
-            nullPlc
+
+    toBuiltinMeaning _semvar NullList =
+        let nullListDenotation :: SomeConstant uni [a] -> BuiltinResult Bool
+            nullListDenotation (SomeConstant (Some (ValueOf uniListA xs))) =
+                case uniListA of
+                    DefaultUniList _uniA -> pure $ null xs
+                    _ -> throwing _StructuralUnliftingError "Expected a list but got something else"
+            {-# INLINE nullListDenotation #-}
+        in makeBuiltinMeaning
+            nullListDenotation
             (runCostingFunOneArgument . paramNullList)
-        where
-          nullPlc :: SomeConstant uni [a] -> EvaluationResult Bool
-          nullPlc (SomeConstant (Some (ValueOf uniListA xs))) = do
-              DefaultUniList _ <- pure uniListA
-              pure $ null xs
-          {-# INLINE nullPlc #-}
 
     -- Data
-    toBuiltinMeaning _ver ChooseData =
-        makeBuiltinMeaning
-            (\d
-              xConstr
-              xMap xList xI xB ->
-                  case d of
+    toBuiltinMeaning _semvar ChooseData =
+        let chooseDataDenotation :: Data -> a -> a -> a -> a -> a -> a
+            chooseDataDenotation d xConstr xMap xList xI xB =
+                case d of
                     Constr {} -> xConstr
                     Map    {} -> xMap
                     List   {} -> xList
                     I      {} -> xI
-                    B      {} -> xB)
+                    B      {} -> xB
+            {-# INLINE chooseDataDenotation #-}
+        in makeBuiltinMeaning
+            chooseDataDenotation
             (runCostingFunSixArguments . paramChooseData)
-    toBuiltinMeaning _ver ConstrData =
-        makeBuiltinMeaning
-            Constr
+
+    toBuiltinMeaning _semvar ConstrData =
+        let constrDataDenotation :: Integer -> [Data] -> Data
+            constrDataDenotation = Constr
+            {-# INLINE constrDataDenotation #-}
+        in makeBuiltinMeaning
+            constrDataDenotation
             (runCostingFunTwoArguments . paramConstrData)
-    toBuiltinMeaning _ver MapData =
-        makeBuiltinMeaning
-            Map
+
+    toBuiltinMeaning _semvar MapData =
+        let mapDataDenotation :: [(Data, Data)] -> Data
+            mapDataDenotation = Map
+            {-# INLINE mapDataDenotation #-}
+        in makeBuiltinMeaning
+            mapDataDenotation
             (runCostingFunOneArgument . paramMapData)
-    toBuiltinMeaning _ver ListData =
-        makeBuiltinMeaning
-            List
+
+    toBuiltinMeaning _semvar ListData =
+        let listDataDenotation :: [Data] -> Data
+            listDataDenotation = List
+            {-# INLINE listDataDenotation #-}
+        in makeBuiltinMeaning
+            listDataDenotation
             (runCostingFunOneArgument . paramListData)
-    toBuiltinMeaning _ver IData =
-        makeBuiltinMeaning
-            I
+
+    toBuiltinMeaning _semvar IData =
+        let iDataDenotation :: Integer -> Data
+            iDataDenotation = I
+            {-# INLINE iDataDenotation #-}
+        in makeBuiltinMeaning
+            iDataDenotation
             (runCostingFunOneArgument . paramIData)
-    toBuiltinMeaning _ver BData =
-        makeBuiltinMeaning
-            B
+
+    toBuiltinMeaning _semvar BData =
+        let bDataDenotation :: BS.ByteString -> Data
+            bDataDenotation = B
+            {-# INLINE bDataDenotation #-}
+        in makeBuiltinMeaning
+            bDataDenotation
             (runCostingFunOneArgument . paramBData)
-    toBuiltinMeaning _ver UnConstrData =
-        makeBuiltinMeaning
-            (\case
-                Constr i ds -> EvaluationSuccess (i, ds)
-                _           -> EvaluationFailure)
+
+    toBuiltinMeaning _semvar UnConstrData =
+        let unConstrDataDenotation :: Data -> BuiltinResult (Integer, [Data])
+            unConstrDataDenotation = \case
+                Constr i ds -> pure (i, ds)
+                _           ->
+                    -- See Note [Structural vs operational errors within builtins].
+                    fail "Expected the Constr constructor but got a different one"
+            {-# INLINE unConstrDataDenotation #-}
+        in makeBuiltinMeaning
+            unConstrDataDenotation
             (runCostingFunOneArgument . paramUnConstrData)
-    toBuiltinMeaning _ver UnMapData =
-        makeBuiltinMeaning
-            (\case
-                Map es -> EvaluationSuccess es
-                _      -> EvaluationFailure)
+
+    toBuiltinMeaning _semvar UnMapData =
+        let unMapDataDenotation :: Data -> BuiltinResult [(Data, Data)]
+            unMapDataDenotation = \case
+                Map es -> pure es
+                _      ->
+                    -- See Note [Structural vs operational errors within builtins].
+                    fail "Expected the Map constructor but got a different one"
+            {-# INLINE unMapDataDenotation #-}
+        in makeBuiltinMeaning
+            unMapDataDenotation
             (runCostingFunOneArgument . paramUnMapData)
-    toBuiltinMeaning _ver UnListData =
-        makeBuiltinMeaning
-            (\case
-                List ds -> EvaluationSuccess ds
-                _       -> EvaluationFailure)
+
+    toBuiltinMeaning _semvar UnListData =
+        let unListDataDenotation :: Data -> BuiltinResult [Data]
+            unListDataDenotation = \case
+                List ds -> pure ds
+                _       ->
+                    -- See Note [Structural vs operational errors within builtins].
+                    fail "Expected the List constructor but got a different one"
+            {-# INLINE unListDataDenotation #-}
+        in makeBuiltinMeaning
+            unListDataDenotation
             (runCostingFunOneArgument . paramUnListData)
-    toBuiltinMeaning _ver UnIData =
-        makeBuiltinMeaning
-            (\case
-                I i -> EvaluationSuccess i
-                _   -> EvaluationFailure)
+
+    toBuiltinMeaning _semvar UnIData =
+        let unIDataDenotation :: Data -> BuiltinResult Integer
+            unIDataDenotation = \case
+                I i -> pure i
+                _   ->
+                    -- See Note [Structural vs operational errors within builtins].
+                    fail "Expected the I constructor but got a different one"
+            {-# INLINE unIDataDenotation #-}
+        in makeBuiltinMeaning
+            unIDataDenotation
             (runCostingFunOneArgument . paramUnIData)
-    toBuiltinMeaning _ver UnBData =
-        makeBuiltinMeaning
-            (\case
-                B b -> EvaluationSuccess b
-                _   -> EvaluationFailure)
+
+    toBuiltinMeaning _semvar UnBData =
+        let unBDataDenotation :: Data -> BuiltinResult BS.ByteString
+            unBDataDenotation = \case
+                B b -> pure b
+                _   ->
+                    -- See Note [Structural vs operational errors within builtins].
+                    fail "Expected the B constructor but got a different one"
+            {-# INLINE unBDataDenotation #-}
+        in makeBuiltinMeaning
+            unBDataDenotation
             (runCostingFunOneArgument . paramUnBData)
-    toBuiltinMeaning _ver EqualsData =
-        makeBuiltinMeaning
-            ((==) @Data)
+
+    toBuiltinMeaning _semvar EqualsData =
+        let equalsDataDenotation :: Data -> Data -> Bool
+            equalsDataDenotation = (==)
+            {-# INLINE equalsDataDenotation #-}
+        in makeBuiltinMeaning
+            equalsDataDenotation
             (runCostingFunTwoArguments . paramEqualsData)
-    toBuiltinMeaning _ver SerialiseData =
-        makeBuiltinMeaning
-            (BSL.toStrict . serialise @Data)
+
+    toBuiltinMeaning _semvar SerialiseData =
+        let serialiseDataDenotation :: Data -> BS.ByteString
+            serialiseDataDenotation = BSL.toStrict . serialise
+            {-# INLINE serialiseDataDenotation #-}
+        in makeBuiltinMeaning
+            serialiseDataDenotation
             (runCostingFunOneArgument . paramSerialiseData)
+
     -- Misc constructors
-    toBuiltinMeaning _ver MkPairData =
-        makeBuiltinMeaning
-            ((,) @Data @Data)
+    toBuiltinMeaning _semvar MkPairData =
+        let mkPairDataDenotation :: Data -> Data -> (Data, Data)
+            mkPairDataDenotation = (,)
+            {-# INLINE mkPairDataDenotation #-}
+        in makeBuiltinMeaning
+            mkPairDataDenotation
             (runCostingFunTwoArguments . paramMkPairData)
-    toBuiltinMeaning _ver MkNilData =
+
+    toBuiltinMeaning _semvar MkNilData =
         -- Nullary built-in functions don't work, so we need a unit argument.
         -- We don't really need this built-in function, see Note [Constants vs built-in functions],
         -- but we keep it around for historical reasons and convenience.
-        makeBuiltinMeaning
-            (\() -> [] @Data)
+        let mkNilDataDenotation :: () -> [Data]
+            mkNilDataDenotation () = []
+            {-# INLINE mkNilDataDenotation #-}
+        in makeBuiltinMeaning
+            mkNilDataDenotation
             (runCostingFunOneArgument . paramMkNilData)
-    toBuiltinMeaning _ver MkNilPairData =
+
+    toBuiltinMeaning _semvar MkNilPairData =
         -- Nullary built-in functions don't work, so we need a unit argument.
         -- We don't really need this built-in function, see Note [Constants vs built-in functions],
         -- but we keep it around for historical reasons and convenience.
-        makeBuiltinMeaning
-            (\() -> [] @(Data,Data))
+        let mkNilPairDataDenotation :: () -> [(Data, Data)]
+            mkNilPairDataDenotation () = []
+            {-# INLINE mkNilPairDataDenotation #-}
+        in makeBuiltinMeaning
+            mkNilPairDataDenotation
             (runCostingFunOneArgument . paramMkNilPairData)
+
     -- BLS12_381.G1
-    toBuiltinMeaning _ver Bls12_381_G1_add =
-        makeBuiltinMeaning
-            BLS12_381.G1.add
+    toBuiltinMeaning _semvar Bls12_381_G1_add =
+        let bls12_381_G1_addDenotation
+                :: BLS12_381.G1.Element -> BLS12_381.G1.Element -> BLS12_381.G1.Element
+            bls12_381_G1_addDenotation = BLS12_381.G1.add
+            {-# INLINE bls12_381_G1_addDenotation #-}
+        in makeBuiltinMeaning
+            bls12_381_G1_addDenotation
             (runCostingFunTwoArguments . paramBls12_381_G1_add)
-    toBuiltinMeaning _ver Bls12_381_G1_neg =
-        makeBuiltinMeaning
-            BLS12_381.G1.neg
+
+    toBuiltinMeaning _semvar Bls12_381_G1_neg =
+        let bls12_381_G1_negDenotation :: BLS12_381.G1.Element -> BLS12_381.G1.Element
+            bls12_381_G1_negDenotation = BLS12_381.G1.neg
+            {-# INLINE bls12_381_G1_negDenotation #-}
+        in makeBuiltinMeaning
+            bls12_381_G1_negDenotation
             (runCostingFunOneArgument . paramBls12_381_G1_neg)
-    toBuiltinMeaning _ver Bls12_381_G1_scalarMul =
-        makeBuiltinMeaning
-            BLS12_381.G1.scalarMul
+
+    toBuiltinMeaning _semvar Bls12_381_G1_scalarMul =
+        let bls12_381_G1_scalarMulDenotation
+                :: Integer -> BLS12_381.G1.Element -> BLS12_381.G1.Element
+            bls12_381_G1_scalarMulDenotation = BLS12_381.G1.scalarMul
+            {-# INLINE bls12_381_G1_scalarMulDenotation #-}
+        in makeBuiltinMeaning
+            bls12_381_G1_scalarMulDenotation
             (runCostingFunTwoArguments . paramBls12_381_G1_scalarMul)
-    toBuiltinMeaning _ver Bls12_381_G1_compress =
-        makeBuiltinMeaning
-            BLS12_381.G1.compress
+
+    toBuiltinMeaning _semvar Bls12_381_G1_compress =
+        let bls12_381_G1_compressDenotation :: BLS12_381.G1.Element -> BS.ByteString
+            bls12_381_G1_compressDenotation = BLS12_381.G1.compress
+            {-# INLINE bls12_381_G1_compressDenotation #-}
+        in makeBuiltinMeaning
+            bls12_381_G1_compressDenotation
             (runCostingFunOneArgument . paramBls12_381_G1_compress)
-    toBuiltinMeaning _ver Bls12_381_G1_uncompress =
-        makeBuiltinMeaning
-            (eitherToEmitter . BLS12_381.G1.uncompress)
+
+    toBuiltinMeaning _semvar Bls12_381_G1_uncompress =
+        let bls12_381_G1_uncompressDenotation
+                :: BS.ByteString -> BuiltinResult BLS12_381.G1.Element
+            bls12_381_G1_uncompressDenotation = eitherToBuiltinResult . BLS12_381.G1.uncompress
+            {-# INLINE bls12_381_G1_uncompressDenotation #-}
+        in makeBuiltinMeaning
+            bls12_381_G1_uncompressDenotation
             (runCostingFunOneArgument . paramBls12_381_G1_uncompress)
-    toBuiltinMeaning _ver Bls12_381_G1_hashToGroup =
-        makeBuiltinMeaning
-            (eitherToEmitter .* BLS12_381.G1.hashToGroup)
+
+    toBuiltinMeaning _semvar Bls12_381_G1_hashToGroup =
+        let bls12_381_G1_hashToGroupDenotation
+                :: BS.ByteString -> BS.ByteString -> BuiltinResult BLS12_381.G1.Element
+            bls12_381_G1_hashToGroupDenotation = eitherToBuiltinResult .* BLS12_381.G1.hashToGroup
+            {-# INLINE bls12_381_G1_hashToGroupDenotation #-}
+        in makeBuiltinMeaning
+            bls12_381_G1_hashToGroupDenotation
             (runCostingFunTwoArguments . paramBls12_381_G1_hashToGroup)
-    toBuiltinMeaning _ver Bls12_381_G1_equal =
-        makeBuiltinMeaning
-            ((==) @BLS12_381.G1.Element)
+
+    toBuiltinMeaning _semvar Bls12_381_G1_equal =
+        let bls12_381_G1_equalDenotation :: BLS12_381.G1.Element -> BLS12_381.G1.Element -> Bool
+            bls12_381_G1_equalDenotation = (==)
+            {-# INLINE bls12_381_G1_equalDenotation #-}
+        in makeBuiltinMeaning
+            bls12_381_G1_equalDenotation
             (runCostingFunTwoArguments . paramBls12_381_G1_equal)
+
     -- BLS12_381.G2
-    toBuiltinMeaning _ver Bls12_381_G2_add =
-        makeBuiltinMeaning
-            BLS12_381.G2.add
+    toBuiltinMeaning _semvar Bls12_381_G2_add =
+        let bls12_381_G2_addDenotation
+                :: BLS12_381.G2.Element -> BLS12_381.G2.Element -> BLS12_381.G2.Element
+            bls12_381_G2_addDenotation = BLS12_381.G2.add
+            {-# INLINE bls12_381_G2_addDenotation #-}
+        in makeBuiltinMeaning
+            bls12_381_G2_addDenotation
             (runCostingFunTwoArguments . paramBls12_381_G2_add)
-    toBuiltinMeaning _ver Bls12_381_G2_neg =
-        makeBuiltinMeaning
-            BLS12_381.G2.neg
+
+    toBuiltinMeaning _semvar Bls12_381_G2_neg =
+        let bls12_381_G2_negDenotation :: BLS12_381.G2.Element -> BLS12_381.G2.Element
+            bls12_381_G2_negDenotation = BLS12_381.G2.neg
+            {-# INLINE bls12_381_G2_negDenotation #-}
+        in makeBuiltinMeaning
+            bls12_381_G2_negDenotation
             (runCostingFunOneArgument . paramBls12_381_G2_neg)
-    toBuiltinMeaning _ver Bls12_381_G2_scalarMul =
-        makeBuiltinMeaning
-            BLS12_381.G2.scalarMul
+
+    toBuiltinMeaning _semvar Bls12_381_G2_scalarMul =
+        let bls12_381_G2_scalarMulDenotation
+                :: Integer -> BLS12_381.G2.Element -> BLS12_381.G2.Element
+            bls12_381_G2_scalarMulDenotation = BLS12_381.G2.scalarMul
+            {-# INLINE bls12_381_G2_scalarMulDenotation #-}
+        in makeBuiltinMeaning
+            bls12_381_G2_scalarMulDenotation
             (runCostingFunTwoArguments . paramBls12_381_G2_scalarMul)
-    toBuiltinMeaning _ver Bls12_381_G2_compress =
-        makeBuiltinMeaning
-            BLS12_381.G2.compress
+
+    toBuiltinMeaning _semvar Bls12_381_G2_compress =
+        let bls12_381_G2_compressDenotation :: BLS12_381.G2.Element -> BS.ByteString
+            bls12_381_G2_compressDenotation = BLS12_381.G2.compress
+            {-# INLINE bls12_381_G2_compressDenotation #-}
+        in makeBuiltinMeaning
+            bls12_381_G2_compressDenotation
             (runCostingFunOneArgument . paramBls12_381_G2_compress)
-    toBuiltinMeaning _ver Bls12_381_G2_uncompress =
-        makeBuiltinMeaning
-            (eitherToEmitter . BLS12_381.G2.uncompress)
+
+    toBuiltinMeaning _semvar Bls12_381_G2_uncompress =
+        let bls12_381_G2_uncompressDenotation
+                :: BS.ByteString -> BuiltinResult BLS12_381.G2.Element
+            bls12_381_G2_uncompressDenotation = eitherToBuiltinResult . BLS12_381.G2.uncompress
+            {-# INLINE bls12_381_G2_uncompressDenotation #-}
+        in makeBuiltinMeaning
+            bls12_381_G2_uncompressDenotation
             (runCostingFunOneArgument . paramBls12_381_G2_uncompress)
-    toBuiltinMeaning _ver Bls12_381_G2_hashToGroup =
-        makeBuiltinMeaning
-            (eitherToEmitter .* BLS12_381.G2.hashToGroup)
+
+    toBuiltinMeaning _semvar Bls12_381_G2_hashToGroup =
+        let bls12_381_G2_hashToGroupDenotation
+                :: BS.ByteString -> BS.ByteString -> BuiltinResult BLS12_381.G2.Element
+            bls12_381_G2_hashToGroupDenotation = eitherToBuiltinResult .* BLS12_381.G2.hashToGroup
+            {-# INLINE bls12_381_G2_hashToGroupDenotation #-}
+        in makeBuiltinMeaning
+            bls12_381_G2_hashToGroupDenotation
             (runCostingFunTwoArguments . paramBls12_381_G2_hashToGroup)
-    toBuiltinMeaning _ver Bls12_381_G2_equal =
-        makeBuiltinMeaning
-            ((==) @BLS12_381.G2.Element)
+
+    toBuiltinMeaning _semvar Bls12_381_G2_equal =
+        let bls12_381_G2_equalDenotation :: BLS12_381.G2.Element -> BLS12_381.G2.Element -> Bool
+            bls12_381_G2_equalDenotation = (==)
+            {-# INLINE bls12_381_G2_equalDenotation #-}
+        in makeBuiltinMeaning
+            bls12_381_G2_equalDenotation
             (runCostingFunTwoArguments . paramBls12_381_G2_equal)
+
     -- BLS12_381.Pairing
-    toBuiltinMeaning _ver Bls12_381_millerLoop =
-        makeBuiltinMeaning
-            BLS12_381.Pairing.millerLoop
+    toBuiltinMeaning _semvar Bls12_381_millerLoop =
+        let bls12_381_millerLoopDenotation
+                :: BLS12_381.G1.Element -> BLS12_381.G2.Element -> BLS12_381.Pairing.MlResult
+            bls12_381_millerLoopDenotation = BLS12_381.Pairing.millerLoop
+            {-# INLINE bls12_381_millerLoopDenotation #-}
+        in makeBuiltinMeaning
+            bls12_381_millerLoopDenotation
             (runCostingFunTwoArguments . paramBls12_381_millerLoop)
-    toBuiltinMeaning _ver Bls12_381_mulMlResult =
-        makeBuiltinMeaning
-            BLS12_381.Pairing.mulMlResult
+
+    toBuiltinMeaning _semvar Bls12_381_mulMlResult =
+        let bls12_381_mulMlResultDenotation
+                :: BLS12_381.Pairing.MlResult
+                -> BLS12_381.Pairing.MlResult
+                -> BLS12_381.Pairing.MlResult
+            bls12_381_mulMlResultDenotation = BLS12_381.Pairing.mulMlResult
+            {-# INLINE bls12_381_mulMlResultDenotation #-}
+        in makeBuiltinMeaning
+            bls12_381_mulMlResultDenotation
             (runCostingFunTwoArguments . paramBls12_381_mulMlResult)
-    toBuiltinMeaning _ver Bls12_381_finalVerify =
-        makeBuiltinMeaning
-            BLS12_381.Pairing.finalVerify
+
+    toBuiltinMeaning _semvar Bls12_381_finalVerify =
+        let bls12_381_finalVerifyDenotation
+                :: BLS12_381.Pairing.MlResult -> BLS12_381.Pairing.MlResult -> Bool
+            bls12_381_finalVerifyDenotation = BLS12_381.Pairing.finalVerify
+            {-# INLINE bls12_381_finalVerifyDenotation #-}
+        in makeBuiltinMeaning
+            bls12_381_finalVerifyDenotation
             (runCostingFunTwoArguments . paramBls12_381_finalVerify)
-    toBuiltinMeaning _ver Keccak_256 =
-        makeBuiltinMeaning
-            Hash.keccak_256
+
+    toBuiltinMeaning _semvar Keccak_256 =
+        let keccak_256Denotation :: BS.ByteString -> BS.ByteString
+            keccak_256Denotation = Hash.keccak_256
+            {-# INLINE keccak_256Denotation #-}
+        in makeBuiltinMeaning
+            keccak_256Denotation
             (runCostingFunOneArgument . paramKeccak_256)
-    toBuiltinMeaning _ver Blake2b_224 =
-        makeBuiltinMeaning
-            Hash.blake2b_224
+
+    toBuiltinMeaning _semvar Blake2b_224 =
+        let blake2b_224Denotation :: BS.ByteString -> BS.ByteString
+            blake2b_224Denotation = Hash.blake2b_224
+            {-# INLINE blake2b_224Denotation #-}
+        in makeBuiltinMeaning
+            blake2b_224Denotation
             (runCostingFunOneArgument . paramBlake2b_224)
+
+
+    -- Extra bytestring operations
+
+    -- Conversions
+    {- See Note [Input length limitation for IntegerToByteString] -}
+    toBuiltinMeaning _semvar IntegerToByteString =
+        let integerToByteStringDenotation :: Bool -> NumBytesCostedAsNumWords -> Integer -> BuiltinResult BS.ByteString
+            {- The second argument is wrapped in a NumBytesCostedAsNumWords to allow us to
+               interpret it as a size during costing. -}
+            integerToByteStringDenotation b (NumBytesCostedAsNumWords w) = Bitwise.integerToByteString b w
+            {-# INLINE integerToByteStringDenotation #-}
+        in makeBuiltinMeaning
+            integerToByteStringDenotation
+            (runCostingFunThreeArguments . paramIntegerToByteString)
+
+    toBuiltinMeaning _semvar ByteStringToInteger =
+        let byteStringToIntegerDenotation :: Bool -> BS.ByteString -> Integer
+            byteStringToIntegerDenotation = Bitwise.byteStringToInteger
+            {-# INLINE byteStringToIntegerDenotation #-}
+        in makeBuiltinMeaning
+            byteStringToIntegerDenotation
+            (runCostingFunTwoArguments . paramByteStringToInteger)
+
+    -- Logical
+    toBuiltinMeaning _semvar AndByteString =
+        let andByteStringDenotation :: Bool -> BS.ByteString -> BS.ByteString -> BS.ByteString
+            andByteStringDenotation = Bitwise.andByteString
+            {-# INLINE andByteStringDenotation #-}
+        in makeBuiltinMeaning
+            andByteStringDenotation
+            (runCostingFunThreeArguments . paramAndByteString)
+
+    toBuiltinMeaning _semvar OrByteString =
+        let orByteStringDenotation :: Bool -> BS.ByteString -> BS.ByteString -> BS.ByteString
+            orByteStringDenotation = Bitwise.orByteString
+            {-# INLINE orByteStringDenotation #-}
+        in makeBuiltinMeaning
+            orByteStringDenotation
+            (runCostingFunThreeArguments . paramOrByteString)
+
+    toBuiltinMeaning _semvar XorByteString =
+        let xorByteStringDenotation :: Bool -> BS.ByteString -> BS.ByteString -> BS.ByteString
+            xorByteStringDenotation = Bitwise.xorByteString
+            {-# INLINE xorByteStringDenotation #-}
+        in makeBuiltinMeaning
+            xorByteStringDenotation
+            (runCostingFunThreeArguments . paramXorByteString)
+
+    toBuiltinMeaning _semvar ComplementByteString =
+        let complementByteStringDenotation :: BS.ByteString -> BS.ByteString
+            complementByteStringDenotation = Bitwise.complementByteString
+            {-# INLINE complementByteStringDenotation #-}
+        in makeBuiltinMeaning
+            complementByteStringDenotation
+            (runCostingFunOneArgument . paramComplementByteString)
+
+    -- Bitwise operations
+
+    toBuiltinMeaning _semvar ReadBit =
+        let readBitDenotation :: BS.ByteString -> Int -> BuiltinResult Bool
+            readBitDenotation = Bitwise.readBit
+            {-# INLINE readBitDenotation #-}
+        in makeBuiltinMeaning
+            readBitDenotation
+            (runCostingFunTwoArguments . paramReadBit)
+
+    toBuiltinMeaning _semvar WriteBits =
+        let writeBitsDenotation
+              :: BS.ByteString
+              -> ListCostedByLength Integer
+              -> Bool
+              -> BuiltinResult BS.ByteString
+            writeBitsDenotation s (ListCostedByLength ixs) = Bitwise.writeBits s ixs
+            {-# INLINE writeBitsDenotation #-}
+        in makeBuiltinMeaning
+            writeBitsDenotation
+            (runCostingFunThreeArguments . paramWriteBits)
+
+    toBuiltinMeaning _semvar ReplicateByte =
+        let replicateByteDenotation :: NumBytesCostedAsNumWords -> Word8 -> BuiltinResult BS.ByteString
+            replicateByteDenotation (NumBytesCostedAsNumWords n) = Bitwise.replicateByte n
+            {-# INLINE replicateByteDenotation #-}
+        in makeBuiltinMeaning
+            replicateByteDenotation
+            (runCostingFunTwoArguments . paramReplicateByte)
+
+    toBuiltinMeaning _semvar ShiftByteString =
+        let shiftByteStringDenotation :: BS.ByteString -> IntegerCostedLiterally -> BS.ByteString
+            shiftByteStringDenotation s (IntegerCostedLiterally n) = Bitwise.shiftByteString s n
+            {-# INLINE shiftByteStringDenotation #-}
+        in makeBuiltinMeaning
+            shiftByteStringDenotation
+            (runCostingFunTwoArguments . paramShiftByteString)
+
+    toBuiltinMeaning _semvar RotateByteString =
+        let rotateByteStringDenotation :: BS.ByteString -> IntegerCostedLiterally -> BS.ByteString
+            rotateByteStringDenotation s (IntegerCostedLiterally n) = Bitwise.rotateByteString s n
+            {-# INLINE rotateByteStringDenotation #-}
+        in makeBuiltinMeaning
+            rotateByteStringDenotation
+            (runCostingFunTwoArguments . paramRotateByteString)
+
+    toBuiltinMeaning _semvar CountSetBits =
+        let countSetBitsDenotation :: BS.ByteString -> Int
+            countSetBitsDenotation = Bitwise.countSetBits
+            {-# INLINE countSetBitsDenotation #-}
+        in makeBuiltinMeaning
+            countSetBitsDenotation
+            (runCostingFunOneArgument . paramCountSetBits)
+
+    toBuiltinMeaning _semvar FindFirstSetBit =
+        let findFirstSetBitDenotation :: BS.ByteString -> Int
+            findFirstSetBitDenotation = Bitwise.findFirstSetBit
+            {-# INLINE findFirstSetBitDenotation #-}
+        in makeBuiltinMeaning
+            findFirstSetBitDenotation
+            (runCostingFunOneArgument . paramFindFirstSetBit)
+
+    toBuiltinMeaning _semvar Ripemd_160 =
+        let ripemd_160Denotation :: BS.ByteString -> BS.ByteString
+            ripemd_160Denotation = Hash.ripemd_160
+            {-# INLINE ripemd_160Denotation #-}
+        in makeBuiltinMeaning
+            ripemd_160Denotation
+            (runCostingFunOneArgument . paramRipemd_160)
+
+    -- Batch 6
+
+    toBuiltinMeaning _semvar ExpModInteger =
+        let expModIntegerDenotation :: Integer -> Integer -> Natural -> BuiltinResult Natural
+            expModIntegerDenotation = ExpMod.expMod
+            {-# INLINE expModIntegerDenotation #-}
+        in makeBuiltinMeaning
+            expModIntegerDenotation
+            (runCostingFunThreeArguments . paramExpModInteger)
+
+    toBuiltinMeaning _ver CaseData =
+        let caseDataDenotation
+                :: Opaque val (Integer -> [Data] -> b)
+                -> Opaque val ([(Data, Data)] -> b)
+                -> Opaque val ([Data] -> b)
+                -> Opaque val (Integer -> b)
+                -> Opaque val (BS.ByteString -> b)
+                -> Data
+                -> Opaque (HeadSpine val) b
+            caseDataDenotation fConstr fMap fList fI fB = \case
+                Constr i ds -> headSpine fConstr [fromValue i, fromValue ds]
+                Map es      -> headSpine fMap [fromValue es]
+                List ds     -> headSpine fList [fromValue ds]
+                I i         -> headSpine fI [fromValue i]
+                B b         -> headSpine fB [fromValue b]
+            {-# INLINE caseDataDenotation #-}
+        in makeBuiltinMeaning
+            caseDataDenotation
+            (runCostingFunSixArguments . unimplementedCostingFun)
+
+    toBuiltinMeaning _semvar DropList =
+        let dropListDenotation
+                :: IntegerCostedLiterally -> SomeConstant uni [a] -> BuiltinResult (Opaque val [a])
+            dropListDenotation i (SomeConstant (Some (ValueOf uniListA xs))) = do
+                -- See Note [Operational vs structural errors within builtins].
+                case uniListA of
+                    DefaultUniList _ ->
+-- We only support @base-4.15@ and higher, because prior versions don't expose the same interface to
+-- 'Integer'.
+#if MIN_VERSION_base(4,15,0)
+                        -- The fastest way of dropping elements from a list is by operating on
+                        -- an unboxed int (i.e. an 'Int#'). We could implement that manually, but
+                        -- 'drop' in @Prelude@ already does that under the hood, so we just need to
+                        -- convert the given 'Integer' to an 'Int' and call 'drop' over that.
+                        fromValueOf uniListA <$> case unIntegerCostedLiterally i of
+                            IS i# -> pure $ drop (I# i#) xs
+                            IN _ -> pure xs
+                            -- If the given 'Integer' is higher than @maxBound :: Int@, then we
+                            -- call 'drop' over the latter instead to get the same performance as in
+                            -- the previous case. This will produce a different result when the
+                            -- list is longer than @maxBound :: Int@, but in practice not only is
+                            -- the budget going to get exhausted long before a @maxBound@ number of
+                            -- elements is skipped, it's not even feasible to skip so many elements
+                            -- for 'Int64' (and we enforce @Int = Int64@ in the @Universe@ module)
+                            -- as that'll take ~3000 years assuming it takes a second to skip
+                            -- @10^8@ elements.
+                            --
+                            -- We could "optimistically" return '[]' directly without doing any
+                            -- skipping at all, but then we'd be occasionally returning the wrong
+                            -- answer immediately rather than in 3000 years and that doesn't sound
+                            -- like a good idea. Particularly given that costing for this builtin is
+                            -- oblivious to such implementation details anyway, so we wouldn't even
+                            -- be able to capitalize on the fast and loose approach.
+                            --
+                            -- Instead of using 'drop' we could've made it something like
+                            -- @foldl' const []@, which would be a tad faster while taking even more
+                            -- than 3000 years to return the wrong result, but with the current
+                            -- approach the wrong result is an error, while with the foldl-based one
+                            -- it'd be an actual incorrect value. Plus, it's best not to rely on
+                            -- GHC not optimizing such an expression away to just '[]' (it really
+                            -- shouldn't, but not taking chances with GHC is the best approach). And
+                            -- again, we wouldn't be able to capitalize on such a speedup anyway.
+                            IP _ -> case drop maxBound xs of
+                               [] -> pure []
+                               _ ->
+                                   throwing _StructuralUnliftingError
+                                       "Panic: unreachable clause executed"
+#else
+                        throwing _StructuralUnliftingError "'dropList' is not supported on GHC-8.10"
+#endif
+                    _ -> throwing _StructuralUnliftingError "Expected a list but got something else"
+            {-# INLINE dropListDenotation #-}
+        in makeBuiltinMeaning
+            dropListDenotation
+            (runCostingFunTwoArguments . paramDropList)
+
+    toBuiltinMeaning _semvar LengthOfArray =
+      let lengthOfArrayDenotation :: SomeConstant uni (Vector a) -> BuiltinResult Int
+          lengthOfArrayDenotation (SomeConstant (Some (ValueOf uni vec))) =
+            case uni of
+              DefaultUniArray _uniA -> pure $ Vector.length vec
+              _ -> throwing _StructuralUnliftingError "Expected an array but got something else"
+          {-# INLINE lengthOfArrayDenotation #-}
+        in makeBuiltinMeaning lengthOfArrayDenotation (runCostingFunOneArgument . unimplementedCostingFun)
+
+    toBuiltinMeaning _semvar ListToArray =
+      let listToArrayDenotation :: SomeConstant uni [a] -> BuiltinResult (Opaque val (Vector a))
+          listToArrayDenotation (SomeConstant (Some (ValueOf uniListA xs))) =
+            case uniListA of
+              DefaultUniList uniA -> pure $ fromValueOf (DefaultUniArray uniA) $ Vector.fromList xs
+              _ -> throwing _StructuralUnliftingError  "Expected an array but got something else"
+          {-# INLINE listToArrayDenotation #-}
+        in makeBuiltinMeaning listToArrayDenotation (runCostingFunOneArgument . unimplementedCostingFun)
+
+    toBuiltinMeaning _semvar IndexArray =
+      let indexArrayDenotation :: SomeConstant uni (Vector a) -> Int -> BuiltinResult (Opaque val a)
+          indexArrayDenotation (SomeConstant (Some (ValueOf uni vec))) n =
+            case uni of
+              DefaultUniArray arg -> do
+                case vec Vector.!? n of
+                  Nothing -> fail "Array index out of bounds"
+                  Just el -> pure $ fromValueOf arg el
+              _ ->
+                    -- See Note [Structural vs operational errors within builtins].
+                    -- The arguments are going to be printed in the "cause" part of the error
+                    -- message, so we don't need to repeat them here.
+                throwing _StructuralUnliftingError "Expected an array but got something else"
+          {-# INLINE indexArrayDenotation #-}
+        in makeBuiltinMeaning indexArrayDenotation (runCostingFunTwoArguments . unimplementedCostingFun)
+
     -- See Note [Inlining meanings of builtins].
     {-# INLINE toBuiltinMeaning #-}
 
-instance Default (BuiltinVersion DefaultFun) where
-    def = DefaultFunV2
+    {- *** IMPORTANT! *** When you're adding a new builtin above you typically won't
+       be able to add a sensible costing function until the implementation is
+       complete and you can benchmark it.  It's still necessary to supply
+       `toBuiltinMeaning` with some costing function though: this **MUST** be
+       `unimplementedCostingFun`: this will assign a very large cost to any
+       invocation of the function, preventing it from being used in places where
+       costs are important (for example on testnets) until the implementation is
+       complete and a proper costing function has been defined.  Once the
+       builtin is ready for general use replace `unimplementedCostingFun` with
+       the appropriate `param<BuiltinName>` from BuiltinCostModelBase.
 
-instance Pretty (BuiltinVersion DefaultFun) where
+       Please leave this comment immediately after the definition of the final
+       builtin to maximise the chances of it being seen the next time someone
+       implements a new builtin.
+    -}
+
+instance Default (BuiltinSemanticsVariant DefaultFun) where
+    def = maxBound
+
+instance Pretty (BuiltinSemanticsVariant DefaultFun) where
     pretty = viaShow
 
 -- It's set deliberately to give us "extra room" in the binary format to add things without running
@@ -1500,7 +2178,7 @@ encodeBuiltin = eBits builtinTagWidth
 decodeBuiltin :: Get Word8
 decodeBuiltin = dBEBits8 builtinTagWidth
 
--- See Note [Stable encoding of PLC]
+-- See Note [Stable encoding of TPLC]
 instance Flat DefaultFun where
     encode = encodeBuiltin . \case
               AddInteger                      -> 0
@@ -1586,6 +2264,33 @@ instance Flat DefaultFun where
               Keccak_256                      -> 71
               Blake2b_224                     -> 72
 
+              IntegerToByteString             -> 73
+              ByteStringToInteger             -> 74
+              AndByteString                   -> 75
+              OrByteString                    -> 76
+              XorByteString                   -> 77
+              ComplementByteString            -> 78
+              ReadBit                         -> 79
+              WriteBits                       -> 80
+              ReplicateByte                   -> 81
+
+              ShiftByteString                 -> 82
+              RotateByteString                -> 83
+              CountSetBits                    -> 84
+              FindFirstSetBit                 -> 85
+              Ripemd_160                      -> 86
+
+              ExpModInteger                   -> 87
+
+              CaseList                        -> 88
+              CaseData                        -> 89
+
+              DropList                        -> 90
+
+              LengthOfArray                   -> 91
+              ListToArray                     -> 92
+              IndexArray                      -> 93
+
     decode = go =<< decodeBuiltin
         where go 0  = pure AddInteger
               go 1  = pure SubtractInteger
@@ -1660,6 +2365,99 @@ instance Flat DefaultFun where
               go 70 = pure Bls12_381_finalVerify
               go 71 = pure Keccak_256
               go 72 = pure Blake2b_224
+              go 73 = pure IntegerToByteString
+              go 74 = pure ByteStringToInteger
+              go 75 = pure AndByteString
+              go 76 = pure OrByteString
+              go 77 = pure XorByteString
+              go 78 = pure ComplementByteString
+              go 79 = pure ReadBit
+              go 80 = pure WriteBits
+              go 81 = pure ReplicateByte
+              go 82 = pure ShiftByteString
+              go 83 = pure RotateByteString
+              go 84 = pure CountSetBits
+              go 85 = pure FindFirstSetBit
+              go 86 = pure Ripemd_160
+              go 87 = pure ExpModInteger
+              go 88 = pure CaseList
+              go 89 = pure CaseData
+              go 90 = pure DropList
+              go 91 = pure LengthOfArray
+              go 92 = pure ListToArray
+              go 93 = pure IndexArray
               go t  = fail $ "Failed to decode builtin tag, got: " ++ show t
 
     size _ n = n + builtinTagWidth
+
+{- Note [Legacy pattern matching on built-in types]
+We used to only support direct pattern matching on enumeration types: 'Void', 'Unit', 'Bool'
+etc. This is because it was impossible to return an iterated application from a built-in function.
+
+So e.g. if we wanted to add the following data type:
+
+    newtype AnInt = AnInt Int
+
+as a built-in type, we wouldn't be able to add the following function as its pattern matcher:
+
+    matchAnInt :: AnInt -> (Int -> r) -> r
+    matchAnInt (AnInt i) f = f i
+
+because we could not express the @f i@ part using the builtins machinery.
+
+But it still was possible to have @AnInt@ as a built-in type, it's just that instead of trying to
+make its pattern matcher into a builtin we could have the following builtin:
+
+    anIntToInt :: AnInt -> Int
+    anIntToInt (AnInt i) = i
+
+Although that was an annoyance for more complex data types. For tuples we needed to provide two
+projection functions ('fst' and 'snd') instead of a single pattern matcher, which is not too bad,
+but to get pattern matching on lists we needed a more complicated setup. For example originally we
+would define three built-in functions: @null@, @head@ and @tail@, plus require `Bool` to be in the
+universe, so that we can define an equivalent of
+
+    matchList :: [a] -> r -> (a -> [a] -> r) -> r
+    matchList xs z f = if null xs then z else f (head xs) (tail xs)
+
+If a constructor stores more than one value, the corresponding projection function would pack them
+into a (possibly nested) pair, for example for
+
+    data Data
+        = Constr Integer [Data]
+        | <...>
+
+we had (pseudocode):
+
+    unConstrData (Constr i ds) = (i, ds)
+
+and we still have that built-in function for backwards compatibility reasons.
+
+In order to get pattern matching over 'Data' we needed a projection function per constructor as well
+as with lists, but writing (where the @Data@ suffix indicates that a function is a builtin that
+somehow corresponds to a constructor of 'Data')
+
+    if isConstrData d
+        then uncurry fConstr $ unConstrData d
+        else if isMapData d
+            then fMap $ unMapData d
+            else if isListData d
+                then fList $ unListData d
+                else <...>
+
+is tedious and inefficient and so instead we introduced a single @chooseData@ builtin that matches
+on its @Data@ argument and chooses the appropriate branch (type instantiations and strictness
+concerns are omitted for clarity):
+
+     chooseData
+        (uncurry fConstr $ unConstrData d)
+        (fMap $ unMapData d)
+        (fList $ unListData d)
+        <...>
+        d
+
+which, for example, evaluates to @fMap es@ when @d@ is @Map es@
+
+We decided to handle lists the same way by using @chooseList@ rather than @null@ for consistency,
+before introduction of pattern matching builtins.
+-}

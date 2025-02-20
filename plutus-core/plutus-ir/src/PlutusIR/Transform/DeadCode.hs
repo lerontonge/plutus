@@ -1,10 +1,14 @@
--- editorconfig-checker-disable-file
 {-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE GADTs             #-}
 {-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
+
 -- | Optimization passes for removing dead code, mainly dead let bindings.
-module PlutusIR.Transform.DeadCode (removeDeadBindings) where
+module PlutusIR.Transform.DeadCode
+  ( removeDeadBindings
+  , removeDeadBindingsPass
+  , removeDeadBindingsPassSC
+  ) where
 
 import PlutusIR
 import PlutusIR.Analysis.Dependencies qualified as Deps
@@ -13,7 +17,7 @@ import PlutusIR.Transform.Rename ()
 
 import PlutusCore qualified as PLC
 import PlutusCore.Builtin qualified as PLC
-import PlutusCore.Name qualified as PLC
+import PlutusCore.Name.Unique qualified as PLC
 
 import Control.Lens
 import Control.Monad.Reader
@@ -24,33 +28,59 @@ import Data.Set qualified as Set
 import Algebra.Graph qualified as G
 import Algebra.Graph.ToGraph qualified as T
 import Data.List.NonEmpty qualified as NE
-import PlutusCore.Quote (MonadQuote, freshTyName, liftQuote)
+import PlutusCore.Quote (MonadQuote, freshTyName)
 import PlutusCore.StdLib.Data.ScottUnit qualified as Unit
+import PlutusIR.Analysis.Builtins
+import PlutusIR.Analysis.VarInfo
+import PlutusIR.Pass
+import PlutusIR.TypeCheck qualified as TC
 import Witherable (Witherable (wither))
 
+removeDeadBindingsPassSC ::
+  (PLC.Typecheckable uni fun, PLC.GEq uni, Ord a, MonadQuote m)
+  => TC.PirTCConfig uni fun
+  -> BuiltinsInfo uni fun
+  -> Pass m TyName Name uni fun a
+removeDeadBindingsPassSC tcconfig binfo =
+  renamePass <> removeDeadBindingsPass tcconfig binfo
+
+removeDeadBindingsPass ::
+  (PLC.Typecheckable uni fun, PLC.GEq uni, Ord a, MonadQuote m)
+  => TC.PirTCConfig uni fun
+  -> BuiltinsInfo uni fun
+  -> Pass m TyName Name uni fun a
+removeDeadBindingsPass tcconfig binfo =
+  NamedPass "dead code elimination" $
+    Pass
+      (removeDeadBindings binfo)
+      [Typechecks tcconfig, GloballyUniqueNames]
+      [ConstCondition (Typechecks tcconfig)]
+
+-- We only need MonadQuote to make new types for bindings
 -- | Remove all the dead let bindings in a term.
 removeDeadBindings
     :: (PLC.HasUnique name PLC.TermUnique,
        PLC.ToBuiltinMeaning uni fun, PLC.MonadQuote m)
-    => PLC.BuiltinVersion fun
+    => BuiltinsInfo uni fun
     -> Term TyName name uni fun a
     -> m (Term TyName name uni fun a)
-removeDeadBindings ver t = do
-    tRen <- PLC.rename t
-    liftQuote $ runReaderT (transformMOf termSubterms processTerm tRen) (calculateLiveness ver tRen)
+removeDeadBindings binfo t = do
+    let vinfo = termVarInfo t
+    runReaderT (transformMOf termSubterms processTerm t) (calculateLiveness binfo vinfo t)
 
 type Liveness = Set.Set Deps.Node
 
 calculateLiveness
     :: (PLC.HasUnique name PLC.TermUnique, PLC.HasUnique tyname PLC.TypeUnique,
        PLC.ToBuiltinMeaning uni fun)
-    => PLC.BuiltinVersion fun
+    => BuiltinsInfo uni fun
+    -> VarsInfo tyname name uni a
     -> Term tyname name uni fun a
     -> Liveness
-calculateLiveness ver t =
+calculateLiveness binfo vinfo t =
     let
         depGraph :: G.Graph Deps.Node
-        depGraph = fst $ Deps.runTermDeps ver t
+        depGraph = Deps.runTermDeps binfo vinfo t
     in Set.fromList $ T.reachable depGraph Deps.Root
 
 live :: (MonadReader Liveness m, PLC.HasUnique n unique) => n -> m Bool
@@ -86,7 +116,7 @@ liveBinding =
                 -- Nothing is live, remove the whole thing
                 (False, False) -> pure Nothing
                 -- See Note [Dependencies for datatype bindings, and pruning them]
-                 -- Datatype is live but no term-level parts are, replace with a trivial type binding
+                -- Datatype is live but no term-level parts are, replace with a trivial type binding
                 (True, False)  -> Just . TypeBind x d <$> mkTypeOfKind (_tyVarDeclKind d)
 
 -- | Given a kind, make a type (any type!) of that kind.

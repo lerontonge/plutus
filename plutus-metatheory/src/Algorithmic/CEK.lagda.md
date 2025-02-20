@@ -1,3 +1,7 @@
+---
+title: Algorithmic.CEK
+layout: page
+---
 # CEK machine that discharges builtin args
 
 ```
@@ -6,17 +10,18 @@ module Algorithmic.CEK where
 open import Data.Nat using (ℕ;zero;suc)
 open import Data.Nat.Properties using (+-identityʳ)
 open import Agda.Builtin.String using (primStringFromList; primStringAppend; primStringEquality)
-open import Agda.Builtin.List using (List;[];_∷_)
+open import Data.Fin using (Fin;zero;suc)
+open import Data.Vec as Vec using (Vec;[];_∷_)
 open import Function using (_∘_)
-open import Relation.Binary.PropositionalEquality using (_≡_;refl;sym;cong;trans) 
-                                                  renaming (subst to substEq)
+open import Relation.Binary.PropositionalEquality using (_≡_;refl;sym;cong;trans)
 open import Data.Unit using (⊤;tt)
 open import Data.Sum using (_⊎_;inj₁;inj₂)
-open import Data.Integer using (_<?_;_+_;_-_;∣_∣;_≤?_;_≟_;ℤ) 
+open import Data.Integer using (_<?_;_+_;_-_;∣_∣;_≤?_;_≟_;ℤ)
                          renaming (_*_ to _**_)
 open import Data.Bool using (true;false)
 open import Relation.Nullary using (no;yes)
 
+open import Utils.List
 open import Type using (Ctx⋆;∅;_,⋆_;_⊢⋆_;_∋⋆_;Z;S)
 open _⊢⋆_
 open import Type.BetaNormal using (_⊢Nf⋆_;_⊢Ne⋆_;embNf;weakenNf)
@@ -24,14 +29,14 @@ open _⊢Nf⋆_
 open _⊢Ne⋆_
 open import Type.BetaNBE using (nf)
 open import Type.BetaNBE.RenamingSubstitution using (_[_]Nf;subNf-id;subNf-cong;extsNf;subNf∅)
-open import Algorithmic using (Ctx;_⊢_;_∋_;conv⊢;builtin_/_;⟦_⟧)
+open import Algorithmic as A using (Ctx;_⊢_;_∋_;conv⊢;builtin_/_;⟦_⟧;[];_∷_;ConstrArgs;Cases;lookupCase;bwdMkCaseType;lemma-bwdfwdfunction')
 open import Algorithmic.Signature using (btype;_[_]SigTy)
 open Ctx
 open _⊢_
 open _∋_
 open import Algorithmic.RenamingSubstitution using (Sub;sub;exts;exts⋆;_[_];_[_]⋆)
 open import Builtin
-open import Utils
+open import Utils hiding (List;length) renaming (_,_ to _,,_)
 
 open import Builtin.Constant.AtomicType
 open import Builtin.Constant.Type using (TyCon)
@@ -40,18 +45,25 @@ open TyCon
 open import Builtin.Signature using (Sig;sig;Args;args♯;fv) renaming (_⊢♯ to _⊢b♯)
 open Sig
 
-open Builtin.Signature.FromSig _⊢Nf⋆_ _⊢Ne⋆_ ne ` _·_ ^ con _⇒_   Π 
+open Builtin.Signature.FromSig _⊢Nf⋆_ _⊢Ne⋆_ ne ` _·_ ^ con _⇒_   Π
     using (sig2type;⊢♯2TyNe♯;SigTy;sig2SigTy;saturatedSigTy;convSigTy)
 open SigTy
+```
 
+````
 data Env : Ctx ∅ → Set
 
-data BApp (b : Builtin) : 
+data BApp (b : Builtin) :
     ∀{tn tm tt} → {pt : tn ∔ tm ≣ tt}
   → ∀{an am at} → {pa : an ∔ am ≣ at}
   → (A : ∅ ⊢Nf⋆ *) → SigTy pt pa A → Set
 
-data Value : (A : ∅ ⊢Nf⋆ *) → Set where
+data Value : (A : ∅ ⊢Nf⋆ *) → Set
+
+VList : Bwd (∅ ⊢Nf⋆ *) → Set
+VList = IBwd Value
+
+data Value where
   V-ƛ : ∀ {Γ}{A B : ∅ ⊢Nf⋆ *}
     → (M : Γ , A ⊢ B)
     → Env Γ
@@ -69,34 +81,35 @@ data Value : (A : ∅ ⊢Nf⋆ *) → Set where
    → Value (μ A B)
 
   V-con : ∀{A : ∅ ⊢Nf⋆ ♯}
-    → ⟦ A ⟧ 
+    → ⟦ A ⟧
     → Value (con A)
 
   V-I⇒ : ∀ b {A B}{tn}
-       → {pt : tn ∔ 0 ≣ fv (signature b)} 
+       → {pt : tn ∔ 0 ≣ fv (signature b)}
        → ∀{an am}{pa : an ∔ (suc am) ≣ args♯ (signature b)}
        → {σB : SigTy pt (bubble pa) B}
        → BApp b (A ⇒ B) (A B⇒ σB)
        → Value (A ⇒ B)
 
   V-IΠ : ∀ b {K}{B : ∅ ,⋆ K ⊢Nf⋆ *}
-       → ∀{tn tm} {pt : tn ∔ (suc tm) ≣ fv (signature b)} 
+       → ∀{tn tm} {pt : tn ∔ (suc tm) ≣ fv (signature b)}
        → ∀{an am}{pa : an ∔ suc am ≣ args♯ (signature b)}
        → {σB : SigTy (bubble pt) pa B}
        → BApp b (Π B) (sucΠ σB)
        → Value (Π B)
+  V-constr : ∀{n}(e : Fin n) Tss {ts} (vs : VList ts) → ts ≡ [] <>< Vec.lookup Tss e → Value (SOP Tss)
 
 data BApp b where
   base : BApp b (sig2type (signature b)) (sig2SigTy (signature b))
   _$_ : ∀{A B}{tn}
-    → {pt : tn ∔ 0 ≣ fv (signature b)} 
+    → {pt : tn ∔ 0 ≣ fv (signature b)}
     → ∀{an am}{pa : an ∔ suc am ≣ args♯ (signature b)}
     → {σB : SigTy pt (bubble pa) B}
     → BApp b (A ⇒ B) (A B⇒ σB)
-    → Value A 
+    → Value A
     → BApp b B σB
   _$$_ : ∀{K}{B : ∅ ,⋆ K ⊢Nf⋆ * }{C}
-    → ∀{tn tm} {pt : tn ∔ (suc tm) ≣ fv (signature b)} 
+    → ∀{tn tm} {pt : tn ∔ (suc tm) ≣ fv (signature b)}
     → ∀{an am}{pa : an ∔ (suc am) ≣ args♯ (signature b)}
     → {σB : SigTy (bubble pt) pa B}
     → BApp b (Π B) (sucΠ σB)
@@ -107,8 +120,8 @@ data BApp b where
 
 infixl 4 _$_
 infixl 4 _$$_
-pattern Λ̂ A = _$$_ base {A = A} refl 
-pattern _●_ bapp B = _$$_ bapp {A = B} refl 
+pattern Λ̂ A = _$$_ base {A = A} refl
+pattern _●_ bapp B = _$$_ bapp {A = B} refl
 ```
 
 ## Environments
@@ -153,18 +166,26 @@ dischargeBody⋆ {A = A} M ρ = conv⊢
 dischargeB : ∀{b : Builtin}
           → ∀{tn tm} → {pt : tn ∔ tm ≣ fv (signature b)}
           → ∀{an am} → {pa : an ∔ am ≣ args♯ (signature b)}
-          → ∀{C} → {Cb : SigTy pt pa C} → (bp : BApp b C Cb) 
+          → ∀{C} → {Cb : SigTy pt pa C} → (bp : BApp b C Cb)
           → ∅ ⊢ C
 dischargeB {b} base = builtin b / refl
 dischargeB (bt $ x) = dischargeB bt · discharge x
 dischargeB (bt $$ q) = dischargeB bt  ·⋆ _ /  q
+
+dischargeStack-aux : ∀{A B C} → (s : VList A) → IList (∅ ⊢_) B → A <>> B ≡ C → IList (∅ ⊢_) C
+dischargeStack-aux [] a refl = a
+dischargeStack-aux (s :< x) a refl = dischargeStack-aux s (discharge x ∷ a) refl
+
+dischargeStack : ∀{Ts} → IBwd Value ([] <>< Ts) → IList (_⊢_ ∅) Ts
+dischargeStack bs = dischargeStack-aux bs [] (lemma<>1 [] _)
 
 discharge (V-ƛ M ρ)  = ƛ (dischargeBody M ρ)
 discharge (V-Λ M ρ)  = Λ (dischargeBody⋆ M ρ)
 discharge (V-wrap V) = wrap _ _ (discharge V)
 discharge (V-con c)  = con c refl
 discharge (V-I⇒ b bt) = dischargeB bt
-discharge (V-IΠ b bt) = dischargeB bt 
+discharge (V-IΠ b bt) = dischargeB bt
+discharge (V-constr i Tss s refl) = constr i Tss refl (dischargeStack s)
 ```
 
 ## Builtin Semantics
@@ -201,6 +222,7 @@ BUILTIN sha3-256 (base $ V-con b) = inj₂ (V-con (SHA3-256 b))
 BUILTIN blake2b-224 (base $ V-con b) = inj₂ (V-con (BLAKE2B-224 b))
 BUILTIN blake2b-256 (base $ V-con b) = inj₂ (V-con (BLAKE2B-256 b))
 BUILTIN keccak-256 (base $ V-con b) = inj₂ (V-con (KECCAK-256 b))
+BUILTIN ripemd-160 (base $ V-con b) = inj₂ (V-con (RIPEMD-160 b))
 BUILTIN verifyEd25519Signature (base $ V-con k $ V-con d $ V-con c) with (verifyEd25519Sig k d c)
 ... | just b = inj₂ (V-con b)
 ... | nothing = inj₁ (con (ne (^ (atomic aBool))))
@@ -221,14 +243,14 @@ BUILTIN appendString (base $ V-con s $ V-con s') = inj₂ (V-con (primStringAppe
 BUILTIN trace (Λ̂ A $ V-con s $  v) =  inj₂ (TRACE s v)
 BUILTIN iData (base $ V-con i) = inj₂ (V-con (iDATA i))
 BUILTIN bData (base $ V-con b) = inj₂ (V-con (bDATA b))
-BUILTIN consByteString (base $ V-con i $ V-con b) with cons i b 
+BUILTIN consByteString (base $ V-con i $ V-con b) with cons i b
 ... | just b' = inj₂ (V-con b')
 ... | nothing = inj₁ (con (ne (^ (atomic aBytestring))))
 BUILTIN sliceByteString (base $ V-con st $ V-con n $ V-con b) = inj₂ (V-con (slice st n b))
-BUILTIN lengthOfByteString (base $ V-con b) = inj₂ (V-con (length b))
+BUILTIN lengthOfByteString (base $ V-con b) = inj₂ (V-con (lengthBS b))
 BUILTIN indexByteString (base $ V-con b $ V-con i) with Data.Integer.ℤ.pos 0 ≤? i
 ... | no  _ = inj₁ (con (ne (^ (atomic aInteger))))
-... | yes _ with i <? length b
+... | yes _ with i <? lengthBS b
 ... | no _  = inj₁ (con (ne (^ (atomic aInteger))))
 ... | yes _ = inj₂ (V-con (index b i))
 BUILTIN equalsString (base $ V-con s $ V-con s') = inj₂ (V-con (primStringEquality s s'))
@@ -236,7 +258,7 @@ BUILTIN unIData (base $ V-con (iDATA i)) = inj₂ (V-con i)
 BUILTIN unIData (base $ V-con _) = inj₁ (con (ne (^ (atomic aData))))
 BUILTIN unBData (base $ V-con (bDATA b)) = inj₂ (V-con b)
 BUILTIN unBData (base $ V-con _) = inj₁ (con (ne (^ (atomic aData))))
-BUILTIN unConstrData (base $ V-con (ConstrDATA i xs)) = inj₂ (V-con (i , xs)) 
+BUILTIN unConstrData (base $ V-con (ConstrDATA i xs)) = inj₂ (V-con (i ,, xs))
 BUILTIN unConstrData (base $ V-con _) = inj₁ (con (ne (^ (atomic aData))))
 BUILTIN unMapData (base $ V-con (MapDATA x)) = inj₂ (V-con x)
 BUILTIN unMapData (base $ V-con _) =  inj₁ (con (ne (^ (atomic aData))))
@@ -247,12 +269,12 @@ BUILTIN mkNilData (base $ V-con _) = inj₂ (V-con [])
 BUILTIN mkNilPairData (base $ V-con _) = inj₂ (V-con [])
 BUILTIN chooseUnit (Λ̂ A $ x $ V-con _) = inj₂ x
 BUILTIN equalsData (base $ V-con d $ V-con d') = inj₂ (V-con (eqDATA d d'))
-BUILTIN mkPairData (base $ V-con x $ V-con y) = inj₂ (V-con (x , y))
-BUILTIN constrData (base $ V-con i $ V-con xs) = inj₂ (V-con (ConstrDATA i xs)) 
+BUILTIN mkPairData (base $ V-con x $ V-con y) = inj₂ (V-con (x ,, y))
+BUILTIN constrData (base $ V-con i $ V-con xs) = inj₂ (V-con (ConstrDATA i xs))
 BUILTIN mapData (base $ V-con xs) = inj₂ (V-con (MapDATA xs))
 BUILTIN listData (base $ V-con xs) = inj₂ (V-con (ListDATA xs))
-BUILTIN fstPair (Λ̂ A ● B $ V-con (x , _)) = inj₂ (V-con x)
-BUILTIN sndPair (Λ̂ A ● B $ V-con (_ , y)) = inj₂ (V-con y)
+BUILTIN fstPair (Λ̂ A ● B $ V-con (x ,, _)) = inj₂ (V-con x)
+BUILTIN sndPair (Λ̂ A ● B $ V-con (_ ,, y)) = inj₂ (V-con y)
 BUILTIN chooseList (Λ̂ A ● B $ V-con [] $ n $ c) = inj₂ n
 BUILTIN chooseList (Λ̂ A ● B  $ V-con (x ∷ xs) $ n $ c) = inj₂ c
 BUILTIN chooseList (() $$ _ $$ _ $ _ $ _)
@@ -263,7 +285,7 @@ BUILTIN headList (Λ̂ A $ V-con (x ∷ _)) = inj₂ (V-con x)
 BUILTIN tailList (Λ̂ A $ V-con []) = inj₁ (con (ne ((^ list) · A)))
 BUILTIN tailList (Λ̂ A $ V-con (_ ∷ xs)) = inj₂ (V-con xs)
 BUILTIN nullList (Λ̂ B $ V-con []) = inj₂ (V-con true)
-BUILTIN nullList (Λ̂ B $ V-con (_ ∷ _)) = inj₂ (V-con false) 
+BUILTIN nullList (Λ̂ B $ V-con (_ ∷ _)) = inj₂ (V-con false)
 BUILTIN chooseData (Λ̂ A $ V-con (ConstrDATA _ _) $ c $ _ $ _ $ _ $ _) = inj₂ c
 BUILTIN chooseData (Λ̂ A $ V-con (MapDATA _)      $ _ $ m $ _ $ _ $ _) = inj₂ m
 BUILTIN chooseData (Λ̂ A $ V-con (ListDATA _)     $ _ $ _ $ l $ _ $ _) = inj₂ l
@@ -294,6 +316,30 @@ BUILTIN bls12-381-G2-uncompress (base $ V-con b) with BLS12-381-G2-uncompress b
 BUILTIN bls12-381-millerLoop (base $ V-con e1 $ V-con e2) = inj₂ (V-con (BLS12-381-millerLoop e1 e2))
 BUILTIN bls12-381-mulMlResult (base $ V-con r $ V-con r') = inj₂ (V-con (BLS12-381-mulMlResult r r'))
 BUILTIN bls12-381-finalVerify (base $ V-con r $ V-con r') = inj₂ (V-con (BLS12-381-finalVerify r r'))
+BUILTIN byteStringToInteger (base $ V-con e $ V-con s) = inj₂ (V-con (BStoI e s))
+BUILTIN integerToByteString (base $ V-con e $ V-con w $ V-con n) with ItoBS e w n
+... | just s = inj₂ (V-con s)
+... | nothing = inj₁ (con (ne (^ (atomic aBytestring))))
+BUILTIN andByteString (base  $ V-con b $ V-con s $ V-con s') = inj₂ (V-con (andBYTESTRING b s s'))
+BUILTIN orByteString  (base  $ V-con b $ V-con s $ V-con s') = inj₂ (V-con (orBYTESTRING b s s'))
+BUILTIN xorByteString (base  $ V-con b $ V-con s $ V-con s') = inj₂ (V-con (xorBYTESTRING b s s'))
+BUILTIN complementByteString (base $ V-con s) = inj₂ (V-con (complementBYTESTRING s))
+BUILTIN readBit (base $ V-con s $ V-con i) with readBIT s i
+... | just r = inj₂ (V-con r)
+... | nothing  = inj₁ (con (ne (^ (atomic aBool))))
+BUILTIN writeBits (base $ V-con s $ V-con ps $ V-con u) with writeBITS s (toList ps) u
+... | just r = inj₂ (V-con r)
+... | nothing  = inj₁ (con (ne (^ (atomic aBytestring))))
+BUILTIN replicateByte (base  $ V-con l $ V-con w) with replicateBYTE l w
+... | just r = inj₂ (V-con r)
+... | nothing  = inj₁ (con (ne (^ (atomic aBytestring))))
+BUILTIN shiftByteString (base $ V-con s $ V-con i) = inj₂ (V-con (shiftBYTESTRING s i))
+BUILTIN rotateByteString (base $ V-con s $ V-con i) = inj₂ (V-con (rotateBYTESTRING s i))
+BUILTIN countSetBits (base $ V-con  s) = inj₂ (V-con (countSetBITS s))
+BUILTIN findFirstSetBit (base $ V-con s) = inj₂ (V-con (findFirstSetBIT s))
+BUILTIN expModInteger (base  $ V-con b $ V-con e $ V-con m) with expModINTEGER b e m
+... | just r = inj₂ (V-con r)
+... | nothing  = inj₁ (con (ne (^ (atomic aInteger))))
 
 BUILTIN' : ∀ b {A}
   → ∀{tn} → {pt : tn ∔ 0 ≣ fv (signature b)}
@@ -321,9 +367,14 @@ V-I b {tm = suc tm} {σA = sucΠ σA} bt = V-IΠ b bt
 data Error : ∅ ⊢Nf⋆ * → Set where
   -- an actual error term
   E-error : (A : ∅ ⊢Nf⋆ *) → Error A
+```
 
+## Frames
+
+```
 data Frame : (T : ∅ ⊢Nf⋆ *) → (H : ∅ ⊢Nf⋆ *) → Set where
-  -·     : ∀{Γ}{A B : ∅ ⊢Nf⋆ *} → Γ ⊢ A → Env Γ → Frame B (A ⇒ B)
+  -·      : ∀{Γ}{A B : ∅ ⊢Nf⋆ *} → Γ ⊢ A → Env Γ → Frame B (A ⇒ B)
+  -·v     : ∀{A B : ∅ ⊢Nf⋆ *} → Value A → Frame B (A ⇒ B)
   _·-     : {A B : ∅ ⊢Nf⋆ *} → Value (A ⇒ B) → Frame B A
 
   -·⋆     : ∀{K}{B : ∅ ,⋆ K ⊢Nf⋆ *}(A : ∅ ⊢Nf⋆ K)
@@ -335,6 +386,14 @@ data Frame : (T : ∅ ⊢Nf⋆ *) → (H : ∅ ⊢Nf⋆ *) → Set where
   unwrap- : ∀{K}{A : ∅ ⊢Nf⋆ (K ⇒ *) ⇒ K ⇒ *}{B : ∅ ⊢Nf⋆ K}
     → Frame (nf (embNf A · ƛ (μ (embNf (weakenNf A)) (` Z)) · embNf B))
             (μ A B)
+  constr- : ∀{Γ n Vs H Ts}
+          → (i : Fin n)
+          → (Tss : Vec _ n)
+          → Env Γ
+          → ∀{Xs} → (Xs ≡ Vec.lookup Tss i)
+          → {tidx : Xs ≣ Vs <>> (H ∷ Ts)} → VList Vs → ConstrArgs Γ Ts
+          → Frame (SOP Tss) H
+  case- : ∀{Γ A n}{Tss : Vec _ n} → (ρ : Env Γ) → Cases Γ A Tss → Frame A (SOP Tss)
 
 data Stack (T : ∅ ⊢Nf⋆ *) : (H : ∅ ⊢Nf⋆ *) → Set where
   ε   : Stack T T
@@ -347,7 +406,11 @@ data State (T : ∅ ⊢Nf⋆ *) : Set where
   ◆     : ∅ ⊢Nf⋆ * → State T
 
 ival : ∀(b : Builtin) → Value (btype b)
-ival b = V-I b base 
+ival b = V-I b base
+
+pushValueFrames : ∀{T H Bs Xs} → Stack T H → VList Bs → Xs ≡ bwdMkCaseType Bs H → Stack T Xs
+pushValueFrames s [] refl = s
+pushValueFrames s (vs :< v) refl = pushValueFrames (s , -·v v) vs refl
 
 step : ∀{T} → State T → State T
 step (s ; ρ ▻ ` x) = s ◅ lookup x ρ
@@ -360,8 +423,13 @@ step (s ; ρ ▻ unwrap L refl) = (s , unwrap-) ; ρ ▻ L
 step (s ; ρ ▻ con c refl) = s ◅ V-con c
 step (s ; ρ ▻ (builtin b / refl)) = s ◅ ival b
 step (s ; ρ ▻ error A) = ◆ A
+step (s ; ρ ▻ constr e Tss refl as) with Vec.lookup Tss e in eq
+step (s ; ρ ▻ constr e Tss refl []) | []  = s ◅ V-constr e Tss [] (cong ([] <><_) (sym eq))
+step (_;_▻_ {Γ} s ρ (constr e Tss refl (_∷_ {xty} {xsty} x xs))) | _ ∷ _ = (s , constr- e Tss ρ (sym eq) {start} [] xs) ; ρ ▻ x
+step (s ; ρ ▻ case t ts) = (s , case- ρ ts) ; ρ ▻ t
 step (ε ◅ V) = □ V
 step ((s , -· M ρ') ◅ V) = (s , V ·-) ; ρ' ▻ M
+step ((s , -·v v) ◅ vf)  = (s , vf ·-) ◅ v
 step ((s , (V-ƛ M ρ ·-)) ◅ V) = s ; ρ ∷ V ▻ M
 step ((s , (V-I⇒ b {am = 0} bapp ·-)) ◅ V) = s ; [] ▻ (BUILTIN' b (bapp $ V))
 step ((s , (V-I⇒ b {am = suc _} bapp ·-)) ◅ V) = s ◅ V-I b (bapp $ V)
@@ -369,6 +437,14 @@ step ((s , -·⋆ A) ◅ V-Λ M ρ) = s ; ρ ▻ (M [ A ]⋆)
 step ((s , -·⋆ A) ◅ V-IΠ b {σB = σ} bapp) = s ◅ V-I b (_$$_ bapp refl {σ [ A ]SigTy})
 step ((s , wrap-) ◅ V) = s ◅ V-wrap V
 step ((s , unwrap-) ◅ V-wrap V) = s ◅ V
+step ((s , constr- i Tss ρ refl {tidx} vs ts) ◅ v)
+    with Vec.lookup Tss i in eq
+... | [] with no-empty-≣-<>> tidx
+... | ()
+step ((s , constr- i Tss ρ refl {r} vs []) ◅ v) | A ∷ As  = s ◅ V-constr i Tss (vs :< v)
+                 (sym (trans (cong ([] <><_) (trans eq (lem-≣-<>> r))) (lemma<>2 _ (_ ∷ []))))
+step ((s , constr- i Tss ρ refl {r} vs (t ∷ ts)) ◅ v) | A ∷ As = (s , constr- i Tss ρ (sym eq) {bubble r} (vs :< v) ts) ; ρ ▻ t
+step {t} ((s , case- ρ cases) ◅ V-constr e Tss vs refl) = pushValueFrames s vs (lemma-bwdfwdfunction' (Vec.lookup Tss e)) ; ρ ▻ (lookupCase e cases)
 step (□ V) = □ V
 step (◆ A) = ◆ A
 
@@ -380,4 +456,3 @@ stepper (suc n) st | (s ; ρ ▻ M) = stepper n (s ; ρ ▻ M)
 stepper (suc n) st | (s ◅ V) = stepper n (s ◅ V)
 stepper (suc n) st | (□ V)   = return (□ V)
 stepper (suc n) st | ◆ A     = return (◆ A)
--- -}

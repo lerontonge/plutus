@@ -1,0 +1,11 @@
+\(n : integer) ->
+  (let
+      int = integer
+    in
+    (let
+        !const : all a b. a -> b -> a = /\a b -> \(x : a) (y : b) -> x
+      in
+      const)
+      {integer}
+      {int})
+    1

@@ -6,6 +6,7 @@
 {-# LANGUAGE FlexibleInstances         #-}
 {-# LANGUAGE MultiParamTypeClasses     #-}
 {-# LANGUAGE PolyKinds                 #-}
+{-# LANGUAGE RankNTypes                #-}
 {-# LANGUAGE StandaloneKindSignatures  #-}
 {-# LANGUAGE TypeApplications          #-}
 {-# LANGUAGE TypeFamilies              #-}
@@ -28,9 +29,8 @@ import PlutusCore.Builtin.TypeScheme
 import PlutusCore.Core
 import PlutusCore.Evaluation.Machine.ExBudgetStream
 import PlutusCore.Evaluation.Machine.ExMemoryUsage
-import PlutusCore.Name
+import PlutusCore.Name.Unique
 
-import Control.DeepSeq
 import Data.Array
 import Data.Kind qualified as GHC
 import Data.Proxy
@@ -49,7 +49,7 @@ type family FoldArgs args res where
     FoldArgs (arg ': args) res = arg -> FoldArgs args res
 
 -- | The meaning of a built-in function consists of its type represented as a 'TypeScheme',
--- its Haskell denotation and a costing function.
+-- its Haskell denotation and its uninstantiated runtime denotation.
 --
 -- The 'TypeScheme' of a built-in function is used for example for
 --
@@ -70,57 +70,85 @@ data BuiltinMeaning val cost =
 type HasMeaningIn uni val = (Typeable val, ExMemoryUsage val, HasConstantIn uni val)
 
 -- | A type class for \"each function from a set of built-in functions has a 'BuiltinMeaning'\".
-class (Typeable uni, Typeable fun, Bounded fun, Enum fun, Ix fun, Default (BuiltinVersion fun)) =>
-            ToBuiltinMeaning uni fun where
+class
+        ( Typeable uni
+        , Typeable fun
+        , Bounded fun
+        , Enum fun
+        , Ix fun
+        , Default (BuiltinSemanticsVariant fun)
+        ) => ToBuiltinMeaning uni fun where
     -- | The @cost@ part of 'BuiltinMeaning'.
     type CostingPart uni fun
 
-    -- | See Note [Versioned builtins]
-    data BuiltinVersion fun
+    -- | See Note [Builtin semantics variants]
+    data BuiltinSemanticsVariant fun
 
     -- | Get the 'BuiltinMeaning' of a built-in function.
-    toBuiltinMeaning :: HasMeaningIn uni val =>
-        BuiltinVersion fun -> fun -> BuiltinMeaning val (CostingPart uni fun)
+    toBuiltinMeaning
+        :: HasMeaningIn uni val
+        => BuiltinSemanticsVariant fun
+        -> fun
+        -> BuiltinMeaning val (CostingPart uni fun)
+
+-- | Feed the 'TypeScheme' of the given built-in function to the continuation.
+withTypeSchemeOfBuiltinFunction
+    :: forall val fun r.
+       (ToBuiltinMeaning (UniOf val) fun, ExMemoryUsage val, Typeable val, HasConstant val)
+    => BuiltinSemanticsVariant fun
+    -> fun
+    -> (forall args res. TypeScheme val args res -> r)
+    -> r
+withTypeSchemeOfBuiltinFunction semVar fun k =
+    case toBuiltinMeaning semVar fun of
+        BuiltinMeaning sch _ _ -> k sch
 
 -- | Get the type of a built-in function.
-typeOfBuiltinFunction :: forall uni fun. ToBuiltinMeaning uni fun =>
-    BuiltinVersion fun -> fun -> Type TyName uni ()
-typeOfBuiltinFunction ver fun =
-    case toBuiltinMeaning @_ @_ @(Term TyName Name uni fun ()) ver fun of
-        BuiltinMeaning sch _ _ -> typeSchemeToType sch
+typeOfBuiltinFunction
+    :: forall uni fun. ToBuiltinMeaning uni fun
+    => BuiltinSemanticsVariant fun
+    -> fun
+    -> Type TyName uni ()
+typeOfBuiltinFunction semVar fun =
+    withTypeSchemeOfBuiltinFunction @(Term TyName Name uni fun ()) semVar fun typeSchemeToType
 
-{- Note [Versioned builtins]
-The purpose of the "versioned builtins" feature is to provide multiple, different denotations
-(implementations) for the same builtin(s).
-An example use of this feature is for "fixing" the behaviour of `ConsByteString` builtin to throw an
-error instead of overflowing its first argument.
+{- Note [Builtin semantics variants]
+The purpose of the "builtin semantics variant" feature is to provide multiple,
+different denotations (implementations) for the same builtin(s).  An example use
+of this feature is for "fixing" the behaviour of `ConsByteString` builtin to
+throw an error instead of overflowing its first argument.
 
-One denotation from each builtin is grouped into a 'BuiltinVersion'. Each Plutus Language version is
-linked to a specific 'BuiltinVersion' (done by plutus-ledger-api); e.g. plutus-v1 and plutus-v2 are
-linked to 'DefaultFunV1', whereas plutus-v3 changes the set of denotations to 'DefaultFunV2' (thus
- fixing 'ConsByteString').
+One denotation from each builtin is grouped into a 'BuiltinSemanticsVariant'.
+Each Plutus Language version is linked to a specific 'BuiltinSemanticsVariant'
+(done by plutus-ledger-api); e.g. plutus-v1 and plutus-v2 are linked to
+'DefaultFunSemanticsVariantA' and 'DefaultFunSemanticsVariantB', whereas
+plutus-v3 changes the set of denotations to 'DefaultFunSemanticsVariantC' (thus
+fixing 'ConsByteString').
 
-Each 'BuiltinVersion' (grouping) can change the denotation of one or more builtins --- or none, but
-what's the point in that.
+Each 'BuiltinSemanticsVariant' (grouping) can change the denotation of one or
+more builtins --- or none, but what's the point in that?
 
-This 'BuiltinVersion' is modelled as a datatype *associated* to the `fun`. This associated datatype
-is required to provide an instance of 'Default' for quality-of-life purpose; the `def`ault builtin
-version is expected to point to the builtin-version that the plutus-tx/plutus-ir compiler is
-currently targeting.
+This 'BuiltinSemanticsVariant' is modelled as a datatype *associated* to the
+@fun@. This associated datatype is required to provide an instance of 'Default'
+for quality-of-life purpose; the 'def'ault builtin semantics variant is expected
+to point to the builtin semantics variant that the plutus-tx/plutus-ir compiler
+is currently targeting.
 
-Note that, (old) denotations of a 'BuiltinVersion' cannot be removed or deprecated, once published
-to the chain.
+Note that (old) denotations of a 'BuiltinSemanticsVariant' cannot be removed or
+deprecated once published to the chain.
 
 The way that this feature is implemented buys us more than we currently need:
 - allows also a versioned change to a builtin's *type signature*, i.e. type of arguments/result as
-well as number of arguments.
+  well as number of arguments.
 - allows also a versioned change to a builtin's cost model parameters
 
-Besides having no need for this currently, it complicates the codebase since the typechecker
-now pointlessly wants to know the builtin-version before typechecking. To alleviate this,
-we use the 'Default.def' builtin version during typechecking / lifting. @effectfully:
-the solution to the problem would be to establish what kind of backwards compatibility we're willing
-to maintain and pull all of that into a separate data type and make it a part of BuiltinMeaning.
+Besides having no need for this currently, it complicates the codebase since the
+typechecker now pointlessly wants to know the builtin semantics before
+typechecking. To alleviate this, we use the 'Default.def' builtin semantics
+variant during typechecking / lifting. @effectfully: the solution to the problem
+would be to establish what kind of backwards compatibility we're willing to
+maintain and pull all of that into a separate data type and make it a part of
+BuiltinMeaning.
 -}
 
 {- Note [Automatic derivation of type schemes]
@@ -213,37 +241,35 @@ instance (Typeable res, KnownTypeAst TyName (UniOf val) res, MakeKnown val res) 
             KnownMonotype val '[] res where
     knownMonotype = TypeSchemeResult
 
-    -- We need to lift the 'ReadKnownM' action into 'MakeKnownM',
-    -- hence 'liftReadKnownM'.
     toMonoF =
         either
             -- Unlifting has failed and we don't care about costing at this point, since we're about
             -- to terminate evaluation anyway, hence we put 'mempty' as the cost of the operation.
             --
-            -- Note that putting the cost inside of 'MakeKnownM' is not an option, since forcing
-            -- the 'MakeKnownM' computation is exactly forcing the builtin application, which we
+            -- Note that putting the cost inside of 'BuiltinResult' is not an option, since forcing
+            -- the 'BuiltinResult' computation is exactly forcing the builtin application, which we
             -- can't do before accounting for the cost of the application, i.e. the cost must be
-            -- outside of 'MakeKnownM'.
+            -- outside of 'BuiltinResult'.
             --
-            -- We could introduce a level of indirection and say that a 'BuiltinResult' is either
-            -- a budgeting failure or a budgeting success with a cost and a 'MakeKnownM' computation
-            -- inside, but that would slow things down a bit and the current strategy is
+            -- We could introduce a level of indirection and say that a 'BuiltinCostedResult' is
+            -- either a budgeting failure or a budgeting success with a cost and a 'BuiltinResult'
+            -- computation inside, but that would slow things down a bit and the current strategy is
             -- reasonable enough.
-            (BuiltinResult (ExBudgetLast mempty) . MakeKnownFailure mempty)
-            (\(x, cost) -> BuiltinResult cost $ makeKnown x)
+            builtinRuntimeFailure
+            (\(x, cost) -> BuiltinCostedResult cost $ makeKnown x)
     {-# INLINE toMonoF #-}
 
 {- Note [One-shotting runtime denotations]
 In @KnownMonotype val (arg ': args) res@ we 'oneShot' the runtime denotations. Otherwise GHC creates
 let-bindings and lifts them out of some of the lambdas in the runtime denotation, which would speed
 up partial applications if they were getting reused, but at some point it was verified that we
-didn't have any reusage of partial applications: https://github.com/input-output-hk/plutus/pull/4629
+didn't have any reusage of partial applications: https://github.com/IntersectMBO/plutus/pull/4629
 
 One-shotting the runtime denotations alone made certain game contracts slower by ~9%. A lot of time
 was spent on the investigation, but we still don't know why that was happening. Plus, basically any
 other change to the builtins machinery would cause the same kind of slowdown, so we just admitted
 defeat and decided it wasn't worth investigating the issue further.
-Relevant thread: https://github.com/input-output-hk/plutus/pull/4620
+Relevant thread: https://github.com/IntersectMBO/plutus/pull/4620
 
 The speedup that adding a call to 'oneShot' gives us, if any, is smaller than our noise threshold,
 however it also makes those confusing allocations disappear from the generated Core, which is enough
@@ -268,15 +294,35 @@ instance
     -- See Note [One-shotting runtime denotations].
     -- Grow the builtin application within the received action and recurse on the result.
     toMonoF getBoth = BuiltinExpectArgument . oneShot $ \arg ->
-        -- Ironically computing the unlifted value strictly is the best way of doing deferred
-        -- unlifting. This means that while the resulting 'ReadKnownM' is only handled upon full
-        -- saturation and any evaluation failure is only registered when the whole builtin
-        -- application is evaluated, a Haskell exception will occur immediately.
-        -- It shouldn't matter though, because a builtin is not supposed to throw an
-        -- exception at any stage, that would be a bug regardless.
-        toMonoF @val @args @res $! do
+        -- The lazy application of 'toMonoF' ensures that unlifting of the argument will happen
+        -- upon full saturation and not before that. This is known as "operationally deferred
+        -- unlifting" (as opposed to "operationally immediate unlifting") or "call-by-name
+        -- unlifting" (as opposed to "call-by-value unlifting"). We do it this way to guarantee that
+        -- the cost of unlifting will be accounted for before unlifting is performed. If we did
+        -- unlifting eagerly here, this would make the node do work that is not accounted for until
+        -- full saturation is reached, which may never happen if the partial application is thrown
+        -- away.
+        --
+        -- The disadvantage of this approach is that @addInteger 42@ will always unlift @42@ upon
+        -- full saturation even if this partial application is saved to a variable. But the way
+        -- costing calibration benchmarks are set up, we always evaluate a single application, so
+        -- the cost of unlifting is included in the cost of the builtin regardless of whether
+        -- there's caching of unlifting or not. Hence the user pays for unlifting anyway and we can
+        -- prioritize safety over performance here.
+        --
+        -- 'oneShot' ensures that GHC doesn't attempt to pull stuff out of the builtin
+        -- implementation to create thunks. This would give us a "call-by-need" behavior, which may
+        -- sound enticing as it would give us both caching and operationally deferred unlifting, but
+        -- this comes at a cost of creating unnecessary thunks in the most common case where there's
+        -- no benefit from having caching as the builtin application is going to be computed only
+        -- once. So we choose the "call-by-name" behavior and 'oneShot' is what enables that.
+        oneShot (toMonoF @val @args @res) $ do
             (f, exF) <- getBoth
-            x <- readKnown arg
+            -- Force the argument that gets passed to the denotation. This seems to help performance
+            -- a bit (possibly due to its impact on strictness analysis), plus this way we ensure
+            -- that if computing the argument throws an exception (isn't supposed to happen), we'll
+            -- catch it in tests.
+            !x <- readKnown arg
             -- See Note [Strict application in runtime denotations].
             let !exY = exF x
             pure (f x, exY)
@@ -375,28 +421,23 @@ toBuiltinRuntime cost (BuiltinMeaning _ _ denot) = denot cost
 {-# INLINE toBuiltinRuntime #-}
 
 -- See Note [Inlining meanings of builtins].
--- | Calculate runtime info for all built-in functions given denotations of builtins,
--- and a cost model.
+-- | Calculate runtime info for all built-in functions given meanings of builtins (as a constraint),
+-- the semantics variant of the set of builtins and a cost model.
 toBuiltinsRuntime
     :: (cost ~ CostingPart uni fun, ToBuiltinMeaning uni fun, HasMeaningIn uni val)
-    => BuiltinVersion fun -> cost -> BuiltinsRuntime fun val
-toBuiltinsRuntime ver cost =
-    let runtime = BuiltinsRuntime $ toBuiltinRuntime cost . inline toBuiltinMeaning ver
-        -- This pragma is very important, removing it destroys the carefully set up optimizations of
-        -- of costing functions (see Note [Optimizations of runCostingFun*]). The reason for that is
-        -- that if @runtime@ doesn't have a pragma, then GHC sees that it's only referenced once and
-        -- inlines it below, together with this entire function (since we tell GHC to), at which
-        -- point everything's inlined and we're completely at GHC's mercy to optimize things
-        -- properly. Unfortunately, GHC doesn't want to cooperate and push 'toBuiltinRuntime' to
-        -- the inside of the inlined to 'toBuiltinMeaning' call, creating lots of 'BuiltinMeaning's
-        -- instead of 'BuiltinRuntime's with the former hiding the costing optimizations behind a
-        -- lambda binding the @cost@ variable, which renders all the optimizations useless. By
-        -- using a @NOINLINE@ pragma we tell GHC to create a separate thunk, which it can properly
-        -- optimize, because the other bazillion things don't get in the way.
-        {-# NOINLINE runtime #-}
-    in
-        -- Force each 'BuiltinRuntime' to WHNF, so that the thunk is allocated and forced at
-        -- initialization time rather than at runtime. Not that we'd lose much by not forcing all
-        -- 'BuiltinRuntime's here, but why pay even very little if there's an easy way not to pay.
-        force runtime
+    => BuiltinSemanticsVariant fun
+    -> cost
+    -> BuiltinsRuntime fun val
+toBuiltinsRuntime semvar cost =
+    -- A call to 'lazy' is to make sure that the returned 'BuiltinsRuntime' is properly cached in a
+    -- 'let'-binding. This makes it easier for GHC to optimize the internals of builtins, because
+    -- without a 'let'-binding GHC would sometimes refuse to cooperate and push 'toBuiltinRuntime'
+    -- to the inside of the inlined 'toBuiltinMeaning' call, creating lots of 'BuiltinMeaning's
+    -- instead of 'BuiltinRuntime's with the former hiding the costing optimizations behind a lambda
+    -- binding the @cost@ variable, which makes the optimizations useless.
+    -- By using 'lazy' we tell GHC to create a separate thunk, which it can properly optimize,
+    -- because the other bazillion things don't get in the way. We used to use an explicit
+    -- 'let'-binding marked with @OPAQUE@, but that turned out to be unreliable, because GHC
+    -- feels free to turn it into a join point instead of a proper thunk.
+    lazy . BuiltinsRuntime $ toBuiltinRuntime cost . inline toBuiltinMeaning semvar
 {-# INLINE toBuiltinsRuntime #-}

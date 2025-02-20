@@ -1,0 +1,8 @@
+(let
+  (nonrec)
+  (typebind (tyvardecl a (type)) (con integer))
+  (typebind (tyvardecl b (type)) (con integer))
+  (lam p b
+    (lam z a [(lam x b x) p])
+  )
+)

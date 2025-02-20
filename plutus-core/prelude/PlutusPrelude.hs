@@ -22,6 +22,8 @@ module PlutusPrelude
     , fromMaybe
     , guard
     , foldl'
+    , for_
+    , traverse_
     , fold
     , for
     , throw
@@ -92,7 +94,13 @@ module PlutusPrelude
     , Default (def)
     -- * Lists
     , zipExact
+    , allSame
+    , distinct
     , unsafeFromRight
+    , tryError
+    , addTheRest
+    , modifyError
+    , lowerInitialChar
     ) where
 
 import Control.Applicative
@@ -101,17 +109,21 @@ import Control.Composition ((.*))
 import Control.DeepSeq (NFData)
 import Control.Exception (Exception, throw)
 import Control.Lens (Fold, Lens', ala, lens, over, set, view, (%~), (&), (.~), (<&>), (^.))
-import Control.Monad (guard, join, void, (<=<), (>=>))
+import Control.Monad
+import Control.Monad.Except (ExceptT, MonadError, catchError, runExceptT, throwError)
 import Control.Monad.Reader (MonadReader, ask)
 import Data.Array (Array, Ix, listArray)
 import Data.Bifunctor (first, second)
+import Data.Char (toLower)
 import Data.Coerce (Coercible, coerce)
 import Data.Default.Class
 import Data.Either (fromRight, isLeft, isRight)
-import Data.Foldable (fold, toList)
+import Data.Foldable (fold, for_, toList, traverse_)
 import Data.Function (on)
 import Data.Functor (($>))
+#if ! MIN_VERSION_base(4,20,0)
 import Data.List (foldl')
+#endif
 import Data.List.Extra (enumerate)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Maybe (fromMaybe, isJust, isNothing)
@@ -235,7 +247,6 @@ showText = T.pack . show
 -- the same length.
 zipExact :: [a] -> [b] -> Maybe [(a,b)]
 zipExact [] []         = Just []
-zipExact [a] [b]       = Just [(a,b)]
 zipExact (a:as) (b:bs) = (:) (a, b) <$> zipExact as bs
 zipExact _ _           = Nothing
 
@@ -248,3 +259,38 @@ unsafeFromRight (Left e)  = error $ show e
 -- | function recursively applied N times
 timesA :: Natural -> (a -> a) -> a -> a
 timesA = ala Endo . stimes
+
+-- | A 'MonadError' version of 'try'.
+--
+-- TODO: remove when we switch to mtl>=2.3
+tryError :: MonadError e m => m a -> m (Either e a)
+tryError a = (Right <$> a) `catchError` (pure . Left)
+{-# INLINE tryError #-}
+
+-- | Pair each element of the given list with all the other elements.
+--
+-- >>> addTheRest "abcd"
+-- [('a',"bcd"),('b',"acd"),('c',"abd"),('d',"abc")]
+addTheRest :: [a] -> [(a, [a])]
+addTheRest []     = []
+addTheRest (x:xs) = (x, xs) : map (fmap (x :)) (addTheRest xs)
+
+{- A different 'MonadError' analogue to the 'withExceptT' function.
+Modify the value (and possibly the type) of an error in an @ExceptT@-transformed
+monad, while stripping the @ExceptT@ layer.
+
+TODO: remove when we switch to mtl>=2.3.1
+-}
+modifyError :: MonadError e' m => (e -> e') -> ExceptT e m a -> m a
+modifyError f m = runExceptT m >>= either (throwError . f) pure
+
+allSame :: Eq a => [a] -> Bool
+allSame []     = True
+allSame (x:xs) = all (x ==) xs
+
+distinct :: Eq a => [a] -> Bool
+distinct = not . allSame
+
+lowerInitialChar :: String -> String
+lowerInitialChar []     = []
+lowerInitialChar (c:cs) = toLower c : cs

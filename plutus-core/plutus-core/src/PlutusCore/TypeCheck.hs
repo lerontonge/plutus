@@ -30,15 +30,15 @@ import PlutusPrelude
 import PlutusCore.Builtin
 import PlutusCore.Core
 import PlutusCore.Default
-import PlutusCore.Name
+import PlutusCore.Name.Unique
 import PlutusCore.Normalize
 import PlutusCore.Quote
 import PlutusCore.Rename
 import PlutusCore.TypeCheck.Internal
 
--- | The constraint for built-in types/functions are kind/type-checkable.
+-- | The constraint for built-in types\/functions are kind\/type-checkable.
 --
--- We keep this separate from 'MonadKindCheck'/'MonadTypeCheck', because those mainly constrain the
+-- We keep this separate from 'MonadKindCheck'\/'MonadTypeCheck', because those mainly constrain the
 -- monad and 'Typecheckable' constraints only the builtins. In particular useful when the monad gets
 -- instantiated and builtins don't. Another reason is that 'Typecheckable' is not required during
 -- type checking, since it's only needed for computing 'BuiltinTypes', which is passed as a regular
@@ -53,10 +53,12 @@ defKindCheckConfig = KindCheckConfig DetectNameMismatches
 -- corresponding 'Type' for each built-in function.
 builtinMeaningsToTypes
     :: (MonadKindCheck err term uni fun ann m, Typecheckable uni fun)
-    => BuiltinVersion fun -> ann -> m (BuiltinTypes uni fun)
-builtinMeaningsToTypes ver ann =
+    => BuiltinSemanticsVariant fun
+    -> ann
+    -> m (BuiltinTypes uni fun)
+builtinMeaningsToTypes semvar ann =
     runQuoteT . fmap BuiltinTypes . sequence . tabulateArray $ \fun -> do
-        let ty = typeOfBuiltinFunction ver fun
+        let ty = typeOfBuiltinFunction semvar fun
         _ <- inferKind defKindCheckConfig $ ann <$ ty
         dupable <$> normalizeType ty
 

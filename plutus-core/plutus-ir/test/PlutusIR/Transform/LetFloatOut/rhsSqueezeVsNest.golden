@@ -1,0 +1,8 @@
+letrec
+  !x : integer = x'
+  ~x' : integer = x
+in
+letrec
+  !y : integer = (\(k : integer) -> let ~y' : integer = addInteger k y in y') y
+in
+x

@@ -1,0 +1,4 @@
+let
+  !a : integer -> integer = error {integer -> integer}
+in
+a ((\(x : integer) -> x) (error {integer}))

@@ -1,0 +1,5 @@
+let
+  data D | match_D where
+    C : all D. D -> D
+in
+/\a -> \(x : a) -> x

@@ -5,8 +5,8 @@ various things from the Plutus Core AST affects the size of serialised
 programs.  The full Plutus Core AST contains type information and
 human-readable names, neither of which are necessary for evaluation,
 so we may not need to keep them around.  This is related to issues
-[#1592](https://github.com/input-output-hk/plutus/issues/1592) and
-[#1524](https://github.com/input-output-hk/plutus/issues/1524) on
+[#1592](https://github.com/IntersectMBO/plutus/issues/1592) and
+[#1524](https://github.com/IntersectMBO/plutus/issues/1524) on
 GitHub.  Merklisation is considered in
 [Merklisation-notes.md](./Merklisation-notes.md) and
 [Merklising-programs.md](./Merklising-programs.md).
@@ -69,8 +69,8 @@ de Bruijn indices.  This turns out to be surprisingly effective.
 ### Results
 
 The experiments here were all carried out on (unapplied) validator
-scripts from the the Plutus [use
-cases](https://github.com/input-output-hk/plutus/tree/master/plutus-use-cases)
+scripts from the Plutus [use
+cases](https://github.com/IntersectMBO/plutus/tree/master/plutus-use-cases)
 in the Plutus repository.  Plutus Core ASTs were obtained from Haskell
 source using the PlutusTx compiler infrastructure and then serialised
 into bytestrings using the
@@ -191,7 +191,7 @@ code.
 
 I'm not sure how easy it would be to evaluate code which uses de
 Bruijn indices, but this is arguably irrelevant: one could use the de
-Bruijn version of a program as a transporation format and convert back
+Bruijn version of a program as a transportation format and convert back
 to the original identifier scheme on the chain (although this would
 obviously incur an extra cost, as would compression and
 decompression).  Another problem with these transformations is that

@@ -1,0 +1,5 @@
+let
+  data (D :: * -> *) D | match_D where
+    C : D D
+in
+/\a -> \(x : a) -> x

@@ -1,12 +1,10 @@
 -- editorconfig-checker-disable-file
--- Need some extra imports from the Prelude for doctests, annoyingly
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wno-unused-imports #-}
 {-# OPTIONS_GHC -fno-omit-interface-pragmas #-}
 {-# OPTIONS_GHC -fmax-simplifier-iterations=0 #-}
 
 module PlutusTx.Prelude (
-    -- $prelude
     -- * Classes
     module Eq,
     module Enum,
@@ -14,6 +12,7 @@ module PlutusTx.Prelude (
     module Semigroup,
     module Monoid,
     module Numeric,
+    module Function,
     module Functor,
     module Applicative,
     module Lattice,
@@ -28,6 +27,8 @@ module PlutusTx.Prelude (
     module Base,
     -- * Tracing functions
     module Trace,
+    -- * Unit
+    BI.BuiltinUnit,
     -- * String
     BuiltinString,
     appendString,
@@ -47,6 +48,7 @@ module PlutusTx.Prelude (
     remainder,
     even,
     odd,
+    expMod,
     -- * Maybe
     module Maybe,
     -- * Either
@@ -64,12 +66,25 @@ module PlutusTx.Prelude (
     indexByteString,
     emptyByteString,
     decodeUtf8,
+    BuiltinByteStringUtf8 (..),
+    Builtins.andByteString,
+    Builtins.orByteString,
+    Builtins.xorByteString,
+    Builtins.complementByteString,
+    -- ** Bit operations
+    Builtins.readBit,
+    Builtins.writeBits,
+    Builtins.shiftByteString,
+    Builtins.rotateByteString,
+    Builtins.countSetBits,
+    Builtins.findFirstSetBit,
     -- * Hashes and Signatures
     sha2_256,
     sha3_256,
     blake2b_224,
     blake2b_256,
     keccak_256,
+    ripemd_160,
     verifyEd25519Signature,
     verifyEcdsaSecp256k1Signature,
     verifySchnorrSecp256k1Signature,
@@ -90,8 +105,8 @@ module PlutusTx.Prelude (
     bls12_381_G1_compress,
     bls12_381_G1_uncompress,
     bls12_381_G1_hashToGroup,
-    bls12_381_G1_zero,
-    bls12_381_G1_generator,
+    bls12_381_G1_compressed_zero,
+    bls12_381_G1_compressed_generator,
     BuiltinBLS12_381_G2_Element,
     bls12_381_G2_equals,
     bls12_381_G2_add,
@@ -100,15 +115,19 @@ module PlutusTx.Prelude (
     bls12_381_G2_compress,
     bls12_381_G2_uncompress,
     bls12_381_G2_hashToGroup,
-    bls12_381_G2_zero,
-    bls12_381_G2_generator,
+    bls12_381_G2_compressed_zero,
+    bls12_381_G2_compressed_generator,
     BuiltinBLS12_381_MlResult,
     bls12_381_millerLoop,
     bls12_381_mulMlResult,
     bls12_381_finalVerify,
     -- * Conversions
     fromBuiltin,
-    toBuiltin
+    toBuiltin,
+    fromOpaque,
+    toOpaque,
+    integerToByteString,
+    byteStringToInteger
     ) where
 
 import Data.String (IsString (..))
@@ -117,32 +136,36 @@ import PlutusTx.Applicative as Applicative
 import PlutusTx.Base as Base
 import PlutusTx.Bool as Bool
 import PlutusTx.Builtins (BuiltinBLS12_381_G1_Element, BuiltinBLS12_381_G2_Element,
-                          BuiltinBLS12_381_MlResult, BuiltinByteString, BuiltinData, BuiltinString,
-                          Integer, appendByteString, appendString, blake2b_224, blake2b_256,
-                          bls12_381_G1_add, bls12_381_G1_compress, bls12_381_G1_equals,
-                          bls12_381_G1_generator, bls12_381_G1_hashToGroup, bls12_381_G1_neg,
-                          bls12_381_G1_scalarMul, bls12_381_G1_uncompress, bls12_381_G1_zero,
-                          bls12_381_G2_add, bls12_381_G2_compress, bls12_381_G2_equals,
-                          bls12_381_G2_generator, bls12_381_G2_hashToGroup, bls12_381_G2_neg,
-                          bls12_381_G2_scalarMul, bls12_381_G2_uncompress, bls12_381_G2_zero,
-                          bls12_381_finalVerify, bls12_381_millerLoop, bls12_381_mulMlResult,
-                          consByteString, decodeUtf8, emptyByteString, emptyString, encodeUtf8,
-                          equalsByteString, equalsString, error, fromBuiltin, greaterThanByteString,
-                          indexByteString, keccak_256, lengthOfByteString, lessThanByteString,
-                          sha2_256, sha3_256, sliceByteString, toBuiltin, trace,
-                          verifyEcdsaSecp256k1Signature, verifyEd25519Signature,
+                          BuiltinBLS12_381_MlResult, BuiltinByteString, BuiltinByteStringUtf8 (..),
+                          BuiltinData, BuiltinString, Integer, appendByteString, appendString,
+                          blake2b_224, blake2b_256, bls12_381_G1_add, bls12_381_G1_compress,
+                          bls12_381_G1_compressed_generator, bls12_381_G1_compressed_zero,
+                          bls12_381_G1_equals, bls12_381_G1_hashToGroup, bls12_381_G1_neg,
+                          bls12_381_G1_scalarMul, bls12_381_G1_uncompress, bls12_381_G2_add,
+                          bls12_381_G2_compress, bls12_381_G2_compressed_generator,
+                          bls12_381_G2_compressed_zero, bls12_381_G2_equals,
+                          bls12_381_G2_hashToGroup, bls12_381_G2_neg, bls12_381_G2_scalarMul,
+                          bls12_381_G2_uncompress, bls12_381_finalVerify, bls12_381_millerLoop,
+                          bls12_381_mulMlResult, byteStringToInteger, consByteString, decodeUtf8,
+                          emptyByteString, emptyString, encodeUtf8, equalsByteString, equalsString,
+                          error, fromBuiltin, fromOpaque, greaterThanByteString, indexByteString,
+                          integerToByteString, keccak_256, lengthOfByteString, lessThanByteString,
+                          ripemd_160, sha2_256, sha3_256, sliceByteString, toBuiltin, toOpaque,
+                          trace, verifyEcdsaSecp256k1Signature, verifyEd25519Signature,
                           verifySchnorrSecp256k1Signature)
 
 import PlutusTx.Builtins qualified as Builtins
+import PlutusTx.Builtins.Internal qualified as BI
 import PlutusTx.Either as Either
 import PlutusTx.Enum as Enum
 import PlutusTx.Eq as Eq
 import PlutusTx.ErrorCodes
 import PlutusTx.Foldable as Foldable
+import PlutusTx.Function as Function
 import PlutusTx.Functor as Functor
 import PlutusTx.IsData
 import PlutusTx.Lattice as Lattice
-import PlutusTx.List as List hiding (foldr)
+import PlutusTx.List as List hiding (concat, concatMap, foldl, foldr)
 import PlutusTx.Maybe as Maybe
 import PlutusTx.Monoid as Monoid
 import PlutusTx.Numeric as Numeric
@@ -166,16 +189,11 @@ import Prelude qualified as Haskell (return, (=<<), (>>), (>>=))
 --     import PlutusTx.Prelude
 -- @
 
--- $setup
--- >>> :set -XNoImplicitPrelude
--- >>> import PlutusTx.Prelude
-
-{-# INLINABLE check #-}
 -- | Checks a 'Bool' and aborts if it is false.
-check :: Bool -> ()
-check b = if b then () else traceError checkHasFailedError
+check :: Bool -> BI.BuiltinUnit
+check b = if b then BI.unitval else traceError checkHasFailedError
+{-# INLINABLE check #-}
 
-{-# INLINABLE divide #-}
 -- | Integer division, rounding downwards
 --
 --   >>> divide (-41) 5
@@ -183,8 +201,8 @@ check b = if b then () else traceError checkHasFailedError
 --
 divide :: Integer -> Integer -> Integer
 divide = Builtins.divideInteger
+{-# INLINABLE divide #-}
 
-{-# INLINABLE modulo #-}
 -- | Integer remainder, always positive for a positive divisor
 --
 --   >>> modulo (-41) 5
@@ -192,18 +210,24 @@ divide = Builtins.divideInteger
 --
 modulo :: Integer -> Integer -> Integer
 modulo = Builtins.modInteger
+{-# INLINABLE modulo #-}
 
-{-# INLINABLE quotient #-}
+
+-- | FIXME
+expMod :: Integer -> Integer -> Integer -> Integer
+expMod = Builtins.expModInteger
+{-# INLINABLE expMod #-}
+
 -- | Integer division, rouding towards zero
 --
 --   >>> quotient (-41) 5
 --   -8
 --
+{-# INLINABLE quotient #-}
 
 quotient :: Integer -> Integer -> Integer
 quotient = Builtins.quotientInteger
 
-{-# INLINABLE remainder #-}
 -- | Integer remainder, same sign as dividend
 --
 --   >>> remainder (-41) 5
@@ -211,21 +235,51 @@ quotient = Builtins.quotientInteger
 --
 remainder :: Integer -> Integer -> Integer
 remainder = Builtins.remainderInteger
+{-# INLINABLE remainder #-}
 
-{-# INLINABLE even #-}
 even :: Integer -> Bool
 even n = if modulo n 2 == 0 then True else False
+{-# INLINABLE even #-}
 
-{-# INLINABLE odd #-}
 odd :: Integer -> Bool
 odd n = if even n then False else True
+{-# INLINABLE odd #-}
 
-{-# INLINABLE takeByteString #-}
 -- | Returns the n length prefix of a 'ByteString'.
 takeByteString :: Integer -> BuiltinByteString -> BuiltinByteString
-takeByteString n bs = Builtins.sliceByteString 0 (toBuiltin n) bs
+takeByteString n bs = Builtins.sliceByteString 0 n bs
+{-# INLINABLE takeByteString #-}
 
-{-# INLINABLE dropByteString #-}
 -- | Returns the suffix of a 'ByteString' after n elements.
 dropByteString :: Integer -> BuiltinByteString -> BuiltinByteString
-dropByteString n bs = Builtins.sliceByteString (toBuiltin n) (Builtins.lengthOfByteString bs - n) bs
+dropByteString n bs = Builtins.sliceByteString n (Builtins.lengthOfByteString bs - n) bs
+{-# INLINABLE dropByteString #-}
+
+{- Note [-fno-full-laziness in Plutus Tx]
+GHC's full-laziness optimization moves computations inside a lambda that don't depend on
+the lambda-bound variable out of the lambda, in order to avoid repeating the computations
+unnecessarily. For Plutus Tx, this is not only not useful but is harmful.
+
+It is not useful because we do not use lazy evaluation for Plutus Tx, so a non-strict
+binding is evaluated exactly the same number of times, whether or not it is inside
+a lambda.
+
+It can be harmful because it can turn
+
+```
+\unused -> case x_lazy of x_evaluated -> ...x_evaluated...
+```
+
+into
+
+```
+let y = ...x_lazy...
+ in \unused -> case x_lazy of _ -> y
+```
+
+These two expressions are equivalent in Haskell. In Plutus Tx, howver, the first one
+evaluates `x_lazy` once, and then uses `x_evaluated` subsequently. The second one,
+on the other hand, evaluates `x_lazy` but discards the result, and may evaluate
+`x_lazy` again when evaluating `y`! We therefore must turn off full laziness in
+Plutus Tx code.
+-}

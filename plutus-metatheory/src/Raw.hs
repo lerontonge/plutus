@@ -7,10 +7,10 @@
 {-# LANGUAGE TypeApplications      #-}
 module Raw where
 
-import Data.ByteString as BS
+import Data.ByteString as BS hiding (map)
 import Data.Text qualified as T
 import PlutusCore
-import PlutusCore.Data
+import PlutusCore.Data hiding (Constr)
 import PlutusCore.DeBruijn
 import PlutusCore.Default
 import PlutusCore.Parser
@@ -29,6 +29,7 @@ data RType = RTyVar Integer
            | RTyApp RType RType
            | RTyCon RTyCon
            | RTyMu RType RType
+           | RTySOP [[RType]]
            deriving Show
 
 data AtomicTyCon = ATyConInt
@@ -58,6 +59,8 @@ data RTerm = RVar Integer
            | RBuiltin DefaultFun
            | RWrap RType RType RTerm
            | RUnWrap RTerm
+           | RConstr RType Integer [RTerm]
+           | RCase RType RTerm [RTerm]
   deriving Show
 
 unIndex :: Index -> Integer
@@ -79,8 +82,9 @@ convT (TyApp _ _A _B)               = RTyApp (convT _A) (convT _B)
 convT (TyBuiltin ann (SomeTypeIn (DefaultUniApply f x))) =
      RTyApp (convT (TyBuiltin ann (SomeTypeIn f)))
             (convT (TyBuiltin ann (SomeTypeIn x)))
-convT (TyBuiltin _ b)               = convTyCon b
+convT (TyBuiltin _ someUni)         = convTyCon someUni
 convT (TyIFix _ a b)                = RTyMu (convT a) (convT b)
+convT (TySOP _ xss)                 = RTySOP (map (map convT) xss)
 
 convTyCon :: SomeTypeIn DefaultUni -> RType
 convTyCon (SomeTypeIn DefaultUniInteger)              = RTyCon (RTyConAtom ATyConInt)
@@ -96,23 +100,6 @@ convTyCon (SomeTypeIn DefaultUniProtoList)            = RTyCon RTyConList
 convTyCon (SomeTypeIn DefaultUniProtoPair)            = RTyCon RTyConPair
 convTyCon (SomeTypeIn (DefaultUniApply _ _))          = error "unsupported builtin type application"
 
-
-{-
-convTyCon :: DefaultUni (Esc a) -> RType
-convTyCon DefaultUniInteger              = RTyCon (RTyConAtom ATyConInt)
-convTyCon DefaultUniByteString           = RTyCon (RTyConAtom ATyConBS)
-convTyCon DefaultUniString               = RTyCon (RTyConAtom ATyConStr)
-convTyCon DefaultUniBool                 = RTyCon (RTyConAtom ATyConBool)
-convTyCon DefaultUniUnit                 = RTyCon (RTyConAtom ATyConUnit)
-convTyCon DefaultUniData                 = RTyCon (RTyConAtom ATyConData)
-convTyCon DefaultUniBLS12_381_G1_Element = RTyCon (RTyConAtom ATyConBLS12_381_G1_Element)
-convTyCon DefaultUniBLS12_381_G2_Element = RTyCon (RTyConAtom ATyConBLS12_381_G2_Element)
-convTyCon DefaultUniBLS12_381_MlResult   = RTyCon (RTyConAtom ATyConBLS12_381_MlResult)
-convTyCon DefaultUniProtoList            = RTyCon RTyConList
-convTyCon DefaultUniProtoPair            = RTyCon RTyConPair
-convTyCon (DefaultUniApply _ _)          = error "unsupported builtin type application"
--}
-
 conv :: Term NamedTyDeBruijn NamedDeBruijn DefaultUni DefaultFun a -> RTerm
 conv (Var _ x)           = RVar (unIndex (ndbnIndex x))
 conv (TyAbs _ _ _K t)    = RTLambda (convK _K) (conv t)
@@ -124,6 +111,8 @@ conv (Constant _ c)      = RCon c
 conv (Unwrap _ t)        = RUnWrap (conv t)
 conv (IWrap _ ty1 ty2 t) = RWrap (convT ty1) (convT ty2) (conv t)
 conv (Error _ _A)        = RError (convT _A)
+conv (Constr _ _A i cs)  = RConstr (convT _A) (toInteger i) (fmap conv cs)
+conv (Case _ _A arg cs)  = RCase (convT _A) (conv arg) (fmap conv cs)
 
 varTm :: Int -> NamedDeBruijn
 varTm i = NamedDeBruijn (T.pack [tmnames !! i]) deBruijnInitIndex
@@ -147,6 +136,7 @@ unconvT i (RTyLambda k t) = TyLam () (NamedTyDeBruijn (varTy i)) (unconvK k) (un
 unconvT i (RTyApp t u)      = TyApp () (unconvT i t) (unconvT i u)
 unconvT i (RTyCon c)        = TyBuiltin () (unconvTyCon c)
 unconvT i (RTyMu t u)       = TyIFix () (unconvT i t) (unconvT i u)
+unconvT i (RTySOP xss)      = TySOP () (map (map (unconvT i)) xss)
 
 unconvTyCon :: RTyCon -> SomeTypeIn DefaultUni
 unconvTyCon (RTyConAtom ATyConInt)  = SomeTypeIn DefaultUniInteger
@@ -181,6 +171,8 @@ unconv i (RError ty)       = Error () (unconvT i ty)
 unconv i (RBuiltin b)      = Builtin () b
 unconv i (RWrap tyA tyB t) = IWrap () (unconvT i tyA) (unconvT i tyB) (unconv i t)
 unconv i (RUnWrap t)       = Unwrap () (unconv i t)
+unconv i (RConstr ty j cs) = Constr () (unconvT i ty) (fromInteger j) (fmap (unconv i) cs)
+unconv i (RCase ty arg cs) = Case () (unconvT i ty) (unconv i arg) (fmap (unconv i) cs)
 
 -- I have put this here as it needs to be a .hs file so that it can be
 -- imported in multiple places
@@ -189,6 +181,7 @@ data ERROR = TypeError T.Text
            | ParseError ParserErrorBundle
            | ScopeError ScopeError
            | RuntimeError RuntimeError
+           | JsonError T.Text
            deriving Show
 
 data ScopeError = DeBError|FreeVariableError FreeVariableError deriving Show

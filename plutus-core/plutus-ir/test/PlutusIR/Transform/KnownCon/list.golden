@@ -1,0 +1,9 @@
+letrec
+  data (List :: * -> *) a | List_match where
+    Nil : List a
+    Cons : a -> List a -> List a
+in
+(\(a : integer) (as : List integer) -> /\dead -> addInteger 2 a)
+  1
+  (Nil {integer})
+  {all dead. dead}

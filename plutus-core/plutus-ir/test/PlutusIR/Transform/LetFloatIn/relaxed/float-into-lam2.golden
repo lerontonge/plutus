@@ -1,0 +1,5 @@
+let
+  !f : integer -> integer
+    = \(y : integer) -> addInteger y (let ~x : integer = addInteger 1 2 in x)
+in
+addInteger (f 1) (f 2)

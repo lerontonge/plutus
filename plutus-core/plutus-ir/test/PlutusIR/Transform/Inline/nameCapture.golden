@@ -1,0 +1,4 @@
+let
+  !c : integer = addInteger 10 10
+in
+addInteger (addInteger 10 7) 7

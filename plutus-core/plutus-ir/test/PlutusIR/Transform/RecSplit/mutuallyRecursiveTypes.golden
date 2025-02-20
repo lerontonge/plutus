@@ -1,0 +1,12 @@
+letrec
+  data (Tree :: * -> *) a | match_Tree where
+    Node : a -> Forest a -> Tree a
+  data (Forest :: * -> *) a | match_Forest where
+    Nil : Forest a
+    Cons : Tree a -> Forest a -> Forest a
+in
+letrec
+  unit = unit_
+  unit_ = unit
+in
+Nil {all a. a -> a}

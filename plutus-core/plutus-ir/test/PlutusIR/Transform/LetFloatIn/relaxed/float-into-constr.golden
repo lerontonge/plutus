@@ -1,0 +1,4 @@
+constr
+  (sop [integer, integer, integer])
+  0
+  [1, (let ~y : integer = addInteger 1 2 in y), 2]

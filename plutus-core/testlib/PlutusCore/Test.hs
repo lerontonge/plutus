@@ -1,12 +1,21 @@
+{-# LANGUAGE DataKinds              #-}
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE OverloadedStrings      #-}
+{-# LANGUAGE PolyKinds              #-}
 {-# LANGUAGE RankNTypes             #-}
 {-# LANGUAGE TypeApplications       #-}
+{-# LANGUAGE TypeFamilies           #-}
 {-# LANGUAGE UndecidableInstances   #-}
 
+{-# OPTIONS_GHC -Wno-orphans #-}
+
 module PlutusCore.Test (
+  mapTestLimit,
+  withAtLeastTests,
+  mapTestLimitAtLeast,
   checkFails,
+  isSerialisable,
   ToTPlc (..),
   ToUPlc (..),
   pureTry,
@@ -14,20 +23,20 @@ module PlutusCore.Test (
   rethrow,
   runTPlc,
   runUPlc,
-  ppThrow,
+  runUPlcLogs,
   ppCatch,
-  goldenTPlcWith,
+  ppCatchReadable,
   goldenTPlc,
-  goldenTPlcCatch,
-  goldenUPlcWith,
+  goldenTPlcReadable,
   goldenUPlc,
-  goldenUPlcCatch,
   goldenUPlcReadable,
   goldenTEval,
   goldenUEval,
-  goldenTEvalCatch,
-  goldenUEvalCatch,
+  goldenUEvalLogs,
   goldenUEvalProfile,
+  goldenUEvalProfile',
+  goldenUEvalBudget,
+  goldenSize,
   initialSrcSpan,
   topSrcSpan,
   NoMarkRenameT (..),
@@ -36,33 +45,33 @@ module PlutusCore.Test (
   noRename,
   BrokenRenameT (..),
   runBrokenRenameT,
-  runUPlcProfile,
-  runUPlcProfileExec,
   brokenRename,
+  Prerename (..),
+  BindingRemoval (..),
   prop_scopingFor,
   test_scopingGood,
   test_scopingBad,
-
+  test_scopingSpoilRenamer,
   -- * Tasty extras
   module TastyExtras,
 ) where
 
-import Test.Tasty.Extras as TastyExtras
-
 import PlutusPrelude
-
-import PlutusCore.Generators.Hedgehog.AST
-import PlutusCore.Generators.Hedgehog.Utils
 
 import PlutusCore qualified as TPLC
 import PlutusCore.Annotation
 import PlutusCore.Check.Scoping
+import PlutusCore.Compiler qualified as TPLC
 import PlutusCore.DeBruijn
+import PlutusCore.Default (noMoreTypeFunctions)
 import PlutusCore.Evaluation.Machine.Ck qualified as TPLC
+import PlutusCore.Evaluation.Machine.ExBudget qualified as TPLC
 import PlutusCore.Evaluation.Machine.ExBudgetingDefaults qualified as TPLC
+import PlutusCore.Generators.Hedgehog.AST
+import PlutusCore.Generators.Hedgehog.Utils
 import PlutusCore.Pretty
+import PlutusCore.Pretty qualified as PP
 import PlutusCore.Rename.Monad qualified as TPLC
-
 import UntypedPlutusCore qualified as UPLC
 import UntypedPlutusCore.Evaluation.Machine.Cek qualified as UPLC
 
@@ -72,19 +81,22 @@ import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
 import Data.Either.Extras
+import Data.Hashable
+import Data.Kind qualified as GHC
 import Data.Text (Text)
 import Hedgehog
-import Prettyprinter qualified as PP
-import System.IO.Unsafe
-import Test.Tasty
-import Test.Tasty.Hedgehog
-import Test.Tasty.HUnit
-
 import Hedgehog.Internal.Config
 import Hedgehog.Internal.Property
 import Hedgehog.Internal.Region
 import Hedgehog.Internal.Report
 import Hedgehog.Internal.Runner
+import Prettyprinter qualified as PP
+import System.IO.Unsafe
+import Test.Tasty hiding (after)
+import Test.Tasty.Extras as TastyExtras
+import Test.Tasty.Hedgehog
+import Test.Tasty.HUnit
+import Universe
 
 -- | Map the 'TestLimit' of a 'Property' with a given function.
 mapTestLimit :: (TestLimit -> TestLimit) -> Property -> Property
@@ -97,11 +109,17 @@ mapTestLimit f =
           EarlyTermination c tests      -> EarlyTermination c $ f tests
       }
 
-{- | Set the number of times a property should be executed before it is considered
-successful, unless it's already higher than that.
+{- | Set the number of times a property should be executed before it is considered successful,
+unless it's already higher than that.
 -}
 withAtLeastTests :: TestLimit -> Property -> Property
 withAtLeastTests = mapTestLimit . max
+
+{- | Set the number of times a property should be executed before it is considered successful,
+unless the given function scales it higher than that.
+-}
+mapTestLimitAtLeast :: TestLimit -> (TestLimit -> TestLimit) -> Property -> Property
+mapTestLimitAtLeast n f = withAtLeastTests n . mapTestLimit f
 
 {- | @check@ is supposed to just check if the property fails or not, but for some stupid reason it
 also performs shrinking and prints the counterexample and other junk. This function is like
@@ -123,6 +141,29 @@ checkFails :: Property -> IO ()
 -- reach a failing test case.
 checkFails = checkQuiet . withAtLeastTests 1000 >=> \res -> res @?= False
 
+-- | Check whether the given constant can be serialised. Useful for tests of the
+-- parser\/deserializer where we need to filter out unprintable\/unserialisable terms. Technically,
+-- G1, G2 elements etc can be printed but not serialised, but here for simplicity we just assume
+-- that all unserialisable terms are unprintable too.
+isSerialisable :: Some (ValueOf TPLC.DefaultUni) -> Bool
+isSerialisable (Some (ValueOf uni0 x0)) = go uni0 x0 where
+    go :: TPLC.DefaultUni (TPLC.Esc a) -> a -> Bool
+    go TPLC.DefaultUniInteger _ = True
+    go TPLC.DefaultUniByteString _ = True
+    go TPLC.DefaultUniString _ = True
+    go TPLC.DefaultUniUnit _ = True
+    go TPLC.DefaultUniBool _ = True
+    go (TPLC.DefaultUniProtoList `TPLC.DefaultUniApply` uniA) xs = all (go uniA) xs
+    go (TPLC.DefaultUniProtoArray `TPLC.DefaultUniApply` uniA) xs = all (go uniA) xs
+    go (TPLC.DefaultUniProtoPair `TPLC.DefaultUniApply` uniA `TPLC.DefaultUniApply` uniB) (x, y) =
+        go uniA x && go uniB y
+    go (f `TPLC.DefaultUniApply` _ `TPLC.DefaultUniApply` _ `TPLC.DefaultUniApply` _) _ =
+        noMoreTypeFunctions f
+    go TPLC.DefaultUniData _ = True
+    go TPLC.DefaultUniBLS12_381_G1_Element _ = False
+    go TPLC.DefaultUniBLS12_381_G2_Element _ = False
+    go TPLC.DefaultUniBLS12_381_MlResult _ = False
+
 {- | Class for ad-hoc overloading of things which can be turned into a PLC program. Any errors
 from the process should be caught.
 -}
@@ -143,6 +184,17 @@ instance (ToUPlc a uni fun) => ToUPlc (ExceptT SomeException IO a) uni fun where
 
 instance ToUPlc (UPLC.Program TPLC.Name uni fun ()) uni fun where
   toUPlc = pure
+
+instance
+  ( TPLC.Typecheckable uni fun
+  , Hashable fun
+  )
+  => ToUPlc (TPLC.Program TPLC.TyName UPLC.Name uni fun ()) uni fun where
+  toUPlc =
+    pure
+      . TPLC.runQuote
+      . flip runReaderT TPLC.defaultCompilationOpts
+      . TPLC.compileProgram
 
 instance ToUPlc (UPLC.Program UPLC.NamedDeBruijn uni fun ()) uni fun where
   toUPlc p =
@@ -175,8 +227,44 @@ runTPlc values = do
         foldl1
           (unsafeFromRight .* TPLC.applyProgram)
           ps
-  liftEither . first toException . TPLC.extractEvaluationResult $
-    TPLC.evaluateCkNoEmit TPLC.defaultBuiltinsRuntime t
+  liftEither . first toException . TPLC.splitStructuralOperational $
+    TPLC.evaluateCkNoEmit TPLC.defaultBuiltinsRuntimeForTesting t
+
+-- | An evaluation failure plus the final budget and logs.
+data EvaluationExceptionWithLogsAndBudget err =
+  EvaluationExceptionWithLogsAndBudget err TPLC.ExBudget [Text]
+
+instance (PrettyBy config err)
+  => PrettyBy config (EvaluationExceptionWithLogsAndBudget err) where
+  prettyBy config (EvaluationExceptionWithLogsAndBudget err budget logs) =
+    PP.vsep
+    [ prettyBy config err
+    , "Final budget:" PP.<+> PP.pretty budget
+    , "Logs:" PP.<+> PP.vsep (fmap PP.pretty logs)
+    ]
+
+instance (PrettyPlc err)
+  => Show (EvaluationExceptionWithLogsAndBudget err) where
+    show = render . prettyPlcReadableSimple
+
+instance (PrettyPlc err, Exception err)
+  => Exception (EvaluationExceptionWithLogsAndBudget err)
+
+runUPlcFull ::
+  (ToUPlc a TPLC.DefaultUni TPLC.DefaultFun) =>
+  [a] ->
+  ExceptT
+    SomeException
+    IO
+    (UPLC.Term TPLC.Name TPLC.DefaultUni TPLC.DefaultFun (), TPLC.ExBudget, [Text])
+runUPlcFull values = do
+  ps <- traverse toUPlc values
+  let (UPLC.Program _ _ t) = foldl1 (unsafeFromRight .* UPLC.applyProgram) ps
+      (res, UPLC.CountingSt budget, logs) =
+        UPLC.runCek TPLC.defaultCekParametersForTesting UPLC.counting UPLC.logEmitter t
+  case res of
+    Left err   -> throwError (SomeException $ EvaluationExceptionWithLogsAndBudget err budget logs)
+    Right resT -> pure (resT, budget, logs)
 
 runUPlc ::
   (ToUPlc a TPLC.DefaultUni TPLC.DefaultFun) =>
@@ -184,58 +272,86 @@ runUPlc ::
   ExceptT
     SomeException
     IO
-    (UPLC.EvaluationResult (UPLC.Term TPLC.Name TPLC.DefaultUni TPLC.DefaultFun ()))
+    (UPLC.Term TPLC.Name TPLC.DefaultUni TPLC.DefaultFun ())
 runUPlc values = do
-  ps <- traverse toUPlc values
-  let (UPLC.Program _ _ t) = foldl1 (unsafeFromRight .* UPLC.applyProgram) ps
-  liftEither . first toException . TPLC.extractEvaluationResult $
-    UPLC.evaluateCekNoEmit TPLC.defaultCekParameters t
+  (t, _, _) <- runUPlcFull values
+  pure t
 
--- For golden tests of profiling.
+runUPlcBudget ::
+  (ToUPlc a TPLC.DefaultUni UPLC.DefaultFun) =>
+  [a] ->
+  ExceptT
+    SomeException
+    IO
+    TPLC.ExBudget
+runUPlcBudget values = do
+  (_, budget, _) <- runUPlcFull values
+  pure budget
+
+runUPlcLogs ::
+  (ToUPlc a TPLC.DefaultUni UPLC.DefaultFun) =>
+  [a] ->
+  ExceptT
+    SomeException
+    IO
+    [Text]
+runUPlcLogs values = do
+  (_, _, logs) <- runUPlcFull values
+  pure logs
+
 runUPlcProfile ::
   (ToUPlc a TPLC.DefaultUni UPLC.DefaultFun) =>
   [a] ->
   ExceptT
     SomeException
     IO
-    (UPLC.Term UPLC.Name TPLC.DefaultUni UPLC.DefaultFun (), [Text])
+    [Text]
+-- Can't use runUplcFull here, as with the others, becasue this one actually needs
+-- to set a different logging method
 runUPlcProfile values = do
   ps <- traverse toUPlc values
   let (UPLC.Program _ _ t) = foldl1 (unsafeFromRight .* UPLC.applyProgram) ps
-      (result, logOut) = UPLC.evaluateCek UPLC.logEmitter TPLC.defaultCekParameters t
-  res <- fromRightM (throwError . SomeException) result
-  pure (res, logOut)
+      (res, UPLC.CountingSt budget, logs) =
+        UPLC.runCek TPLC.defaultCekParametersForTesting UPLC.counting UPLC.logWithTimeEmitter t
+  case res of
+    Left err -> throwError (SomeException $ EvaluationExceptionWithLogsAndBudget err budget logs)
+    Right _  -> pure logs
 
--- For the profiling executable.
-runUPlcProfileExec ::
+runUPlcProfile' ::
   (ToUPlc a TPLC.DefaultUni UPLC.DefaultFun) =>
   [a] ->
   ExceptT
     SomeException
     IO
-    (UPLC.Term UPLC.Name TPLC.DefaultUni UPLC.DefaultFun (), [Text])
-runUPlcProfileExec values = do
+    [Text]
+-- Can't use runUplcFull here, as with the others, becasue this one actually needs
+-- to set a different logging method
+runUPlcProfile' values = do
   ps <- traverse toUPlc values
   let (UPLC.Program _ _ t) = foldl1 (unsafeFromRight .* UPLC.applyProgram) ps
-      (result, logOut) = UPLC.evaluateCek UPLC.logWithTimeEmitter TPLC.defaultCekParameters t
-  res <- fromRightM (throwError . SomeException) result
-  pure (res, logOut)
+      (res, UPLC.CountingSt _, logs) =
+        UPLC.runCek TPLC.defaultCekParametersForTesting UPLC.counting UPLC.logWithBudgetEmitter t
+  case res of
+    Left err -> throwError (SomeException err)
+    Right _  -> pure logs
 
 ppCatch :: (PrettyPlc a) => ExceptT SomeException IO a -> IO (Doc ann)
-ppCatch value = either (PP.pretty . show) prettyPlcClassicDebug <$> runExceptT value
+ppCatch value = either (PP.prettyClassic . show) prettyPlcReadableSimple <$> runExceptT value
 
-ppThrow :: (PrettyPlc a) => ExceptT SomeException IO a -> IO (Doc ann)
-ppThrow value = rethrow $ prettyPlcClassicDebug <$> value
+ppCatch' :: ExceptT SomeException IO (Doc ann) -> IO (Doc ann)
+ppCatch' value = either (PP.prettyClassic . show) id <$> runExceptT value
 
-ppThrowReadable ::
-  (PrettyBy (PrettyConfigReadable PrettyConfigName) a) =>
-  ExceptT SomeException IO a ->
-  IO (Doc ann)
-ppThrowReadable value = rethrow $ pretty . AsReadable <$> value
+ppCatchReadable
+  :: forall a ann
+   . PrettyBy (PrettyConfigReadable PrettyConfigName) a
+  => ExceptT SomeException IO a -> IO (Doc ann)
+ppCatchReadable value =
+  let pprint :: forall t. PrettyBy (PrettyConfigReadable PrettyConfigName) t => t -> Doc ann
+      pprint = prettyBy (topPrettyConfigReadable prettyConfigNameSimple def)
+   in either (pprint . show) pprint <$> runExceptT value
 
 goldenTPlcWith ::
   (ToTPlc a TPLC.DefaultUni TPLC.DefaultFun) =>
-  String ->
   ( ExceptT
       SomeException
       IO
@@ -245,7 +361,7 @@ goldenTPlcWith ::
   String ->
   a ->
   TestNested
-goldenTPlcWith ext pp name value = nestedGoldenVsDocM name ext $ pp $ do
+goldenTPlcWith pp name value = nestedGoldenVsDocM name ".tplc" $ pp $ do
   p <- toTPlc value
   withExceptT @_ @FreeVariableError toException $ traverseOf TPLC.progTerm deBruijnTerm p
 
@@ -254,18 +370,17 @@ goldenTPlc ::
   String ->
   a ->
   TestNested
-goldenTPlc = goldenTPlcWith ".tplc" ppThrow
+goldenTPlc = goldenTPlcWith ppCatch
 
-goldenTPlcCatch ::
+goldenTPlcReadable ::
   (ToTPlc a TPLC.DefaultUni TPLC.DefaultFun) =>
   String ->
   a ->
   TestNested
-goldenTPlcCatch = goldenTPlcWith ".tplc-catch" ppCatch
+goldenTPlcReadable = goldenTPlcWith ppCatchReadable
 
 goldenUPlcWith ::
   (ToUPlc a UPLC.DefaultUni UPLC.DefaultFun) =>
-  String ->
   ( ExceptT
       SomeException
       IO
@@ -275,7 +390,7 @@ goldenUPlcWith ::
   String ->
   a ->
   TestNested
-goldenUPlcWith ext pp name value = nestedGoldenVsDocM name ext $ pp $ do
+goldenUPlcWith pp name value = nestedGoldenVsDocM name ".uplc" $ pp $ do
   p <- toUPlc value
   withExceptT @_ @FreeVariableError toException $ traverseOf UPLC.progTerm UPLC.deBruijnTerm p
 
@@ -284,21 +399,14 @@ goldenUPlc ::
   String ->
   a ->
   TestNested
-goldenUPlc = goldenUPlcWith ".uplc" ppThrow
+goldenUPlc = goldenUPlcWith ppCatch
 
 goldenUPlcReadable ::
   (ToUPlc a UPLC.DefaultUni UPLC.DefaultFun) =>
   String ->
   a ->
   TestNested
-goldenUPlcReadable = goldenUPlcWith ".uplc-readable" ppThrowReadable
-
-goldenUPlcCatch ::
-  (ToUPlc a UPLC.DefaultUni UPLC.DefaultFun) =>
-  String ->
-  a ->
-  TestNested
-goldenUPlcCatch = goldenUPlcWith ".uplc-catch" ppCatch
+goldenUPlcReadable = goldenUPlcWith ppCatchReadable
 
 goldenTEval ::
   (ToTPlc a TPLC.DefaultUni TPLC.DefaultFun) =>
@@ -306,39 +414,34 @@ goldenTEval ::
   [a] ->
   TestNested
 goldenTEval name values =
-  nestedGoldenVsDocM name ".teval" $ prettyPlcClassicDebug <$> (rethrow $ runTPlc values)
+  nestedGoldenVsDocM name ".eval" $ ppCatch $ runTPlc values
 
-goldenUEval ::
-  (ToUPlc a TPLC.DefaultUni TPLC.DefaultFun) =>
-  String ->
-  [a] ->
-  TestNested
-goldenUEval name values =
-  nestedGoldenVsDocM name ".ueval" $ prettyPlcClassicDebug <$> (rethrow $ runUPlc values)
+goldenUEval :: (ToUPlc a TPLC.DefaultUni TPLC.DefaultFun) => String -> [a] -> TestNested
+goldenUEval name values = nestedGoldenVsDocM name ".eval" $ ppCatch $ runUPlc values
 
-goldenTEvalCatch ::
-  (ToTPlc a TPLC.DefaultUni TPLC.DefaultFun) =>
-  String ->
-  [a] ->
-  TestNested
-goldenTEvalCatch name values = nestedGoldenVsDocM name ".teval-catch" $ ppCatch $ runTPlc values
+goldenUEvalLogs :: (ToUPlc a TPLC.DefaultUni TPLC.DefaultFun) => String -> [a] -> TestNested
+goldenUEvalLogs name values = nestedGoldenVsDocM name ".eval" $ ppCatch $ runUPlcLogs values
 
-goldenUEvalCatch ::
-  (ToUPlc a TPLC.DefaultUni TPLC.DefaultFun) =>
-  String ->
-  [a] ->
-  TestNested
-goldenUEvalCatch name values = nestedGoldenVsDocM name ".ueval-catch" $ ppCatch $ runUPlc values
+-- | This is mostly useful for profiling a test that is normally
+-- tested with one of the other functions, as it's a drop-in
+-- replacement and you can then pass the output into `traceToStacks`.
+goldenUEvalProfile :: (ToUPlc a TPLC.DefaultUni TPLC.DefaultFun) => String -> [a] -> TestNested
+goldenUEvalProfile name values = nestedGoldenVsDocM name ".eval" $ ppCatch $ runUPlcProfile values
 
--- | Similar to @goldenUEval@ but with profiling turned on.
-goldenUEvalProfile ::
-  (ToUPlc a TPLC.DefaultUni TPLC.DefaultFun) =>
-  String ->
-  [a] ->
-  TestNested
-goldenUEvalProfile name values =
-  nestedGoldenVsDocM name ".ueval-profile" $
-    pretty . view _2 <$> (rethrow $ runUPlcProfile values)
+goldenUEvalBudget :: (ToUPlc a TPLC.DefaultUni TPLC.DefaultFun) => String -> [a] -> TestNested
+goldenUEvalBudget name values = nestedGoldenVsDocM name ".budget" $ ppCatch $ runUPlcBudget values
+
+goldenSize :: (ToUPlc a TPLC.DefaultUni TPLC.DefaultFun) => String -> a -> TestNested
+goldenSize name value =
+  nestedGoldenVsDocM name ".size" $ pure . pretty . UPLC.programSize =<< rethrow (toUPlc value)
+
+-- | This is mostly useful for profiling a test that is normally
+-- tested with one of the other functions, as it's a drop-in
+-- replacement and you can then pass the output into `traceToStacks`.
+goldenUEvalProfile' :: (ToUPlc a TPLC.DefaultUni TPLC.DefaultFun) => String -> [a] -> TestNested
+goldenUEvalProfile' name values =
+  nestedGoldenVsDocM name ".eval" $ ppCatch' $
+    fmap (\ts -> PP.vsep (fmap pretty ts)) $ runUPlcProfile' values
 
 -- | A made-up `SrcSpan` for testing.
 initialSrcSpan :: FilePath -> SrcSpan
@@ -346,6 +449,15 @@ initialSrcSpan fp = SrcSpan fp 1 1 1 2
 
 topSrcSpan :: SrcSpan
 topSrcSpan = initialSrcSpan "top"
+
+-- Some things require annotations to have these instances.
+-- Normally in the compiler we use Provenance, which adds them, but
+-- we add slightly sketchy instances for SrcSpan here for convenience
+instance Semigroup TPLC.SrcSpan where
+    sp1 <> _ = sp1
+
+instance Monoid TPLC.SrcSpan where
+    mempty = initialSrcSpan ""
 
 -- See Note [Marking].
 
@@ -370,7 +482,7 @@ noMarkRename ::
 noMarkRename renM = TPLC.runRenameT . unNoMarkRenameT . renM
 
 -- | A version of 'RenameT' that does not perform any renaming at all.
-newtype NoRenameT ren m a = NoRenameT
+newtype NoRenameT (ren :: GHC.Type) m a = NoRenameT
   { unNoRenameT :: m a
   }
   deriving newtype
@@ -423,47 +535,138 @@ brokenRename ::
   m t
 brokenRename mark renM = through mark >=> runBrokenRenameT . renM
 
+{- Note [Scoping tests API]
+If you want to test how a certain pass handles scoping you should use either 'test_scopingGood' or
+'test_scopingBad' depending on whether the pass is expected to preserve global uniqueness and not
+change scoping of its argument. Regarding the last one: substitution, for example, may remove free
+variables and scoping tests, being initially developed only to test renamers, will fail upon seeing
+that a free variable was removed. So any scoping test failure needs to be carefully scrutinized
+before concluding that it reveals a bug.
+
+As it turns out, most AST transformations don't do anything that would cause the scoping tests to
+false-positively report a bug:
+
+- a lot of passes simply do not do anything with names apart from maybe moving them around
+- those that do change names may produce alpha-equivalent results and this is one thing that the
+  scoping machinery is designed to test
+- some passes such as inlining may duplicate binders, but that is also fine as long as the
+  duplicates are properly renamed, since the scoping machinery doesn't count binders or variable
+  usages, it only expects free names to stay free, bound names to change together with their binders
+  and global uniqueness to be preserved (see 'ScopeError' for the full list of possible errors)
+- some passes such as inlining may remove bindings and there's special support implemented for
+  handling this: when invoking either 'test_scopingGood' or 'test_scopingBad' you need to provide a
+  'BindingRemoval' argument specifying whether binding removal is expected for the pass. Conversily,
+  make it 'BindingRemovalOk' whenever you use 'test_scopingBad' to emphasize that even with binding
+  removal allowed tests still fail
+- some passes do not perform renaming of the input themselves, in that case you need to provide
+  'PrerenameYes' for the 'Prerename' argument that both the test runners expect. It doesn't matter
+  whether the pass relies on global uniqueness itself, because the scoping tests rely on it anyway.
+  If the pass renames its input, and only in this case, provide 'PrerenameNo' for the 'Prerename'
+  argument, this will allow the scoping tests to ensure that the pass does indeed rename its input
+- due to a very specific design of the scoping tests some passes don't give false positives, but
+  don't get tested properly either. For example dead code elimination is a no-op within the scoping
+  tests, because internally all types/terms/programs only contain bindings that get referenced
+
+There's also 'test_scopingSpoilRenamer', this one is used to test that the scoping tests do catch
+various kinds of bugs. Don't use it with any passes that aren't renamers.
+
+All in all, in order to use the scoping tests you have to understand how they work, which is an
+unfortunate but seemingly inevitable requirement. On the bright side, it's worth the effort, because
+the tests do catch bugs occasionally.
+
+Whenever you use 'test_scopingBad' make sure to explain why, so that it's clear whether there's
+something wrong with the pass or it's just a limitation of the scoping tests.
+-}
+
+-- | Determines whether to perform renaming before running the scoping tests. Needed for passes that
+-- don't perform renaming themselves.
+data Prerename =
+  PrerenameYes |
+  PrerenameNo
+
+runPrerename :: TPLC.Rename a => Prerename -> a -> a
+runPrerename PrerenameYes = TPLC.runQuote . TPLC.rename
+runPrerename PrerenameNo  = id
+
 -- | Test scoping for a renamer.
 prop_scopingFor ::
-  (Pretty (t ann), Scoping t) =>
+  (PrettyPlc (t NameAnn), TPLC.Rename (t NameAnn), Scoping t) =>
+  -- | A generator of types\/terms\/programs.
   AstGen (t ann) ->
+  -- | Whether binding removal is expected for the pass.
+  BindingRemoval ->
+  -- | Whether renaming is required before running the scoping tests. Note that the scoping tests
+  -- rely on global uniqueness themselves, hence for any pass that doesn't perform renaming
+  -- internally this needs to be 'PrerenameYes'.
+  Prerename ->
+  -- | The runner of the pass.
   (t NameAnn -> TPLC.Quote (t NameAnn)) ->
   Property
-prop_scopingFor gen ren = property $ do
-  prog <- forAllPretty $ runAstGen gen
-  let catchEverything = unsafePerformIO . try @SomeException . evaluate
-  case catchEverything $ checkRespectsScoping (TPLC.runQuote . ren) prog of
-    Left exc         -> fail $ show exc
-    Right (Left err) -> fail $ show err
+prop_scopingFor gen bindRem preren run = withTests 200 . property $ do
+  prog <- forAllNoShow $ runAstGen gen
+  let -- TODO: use @enclosed-exceptions@.
+      catchEverything = unsafePerformIO . try @SomeException . evaluate
+      prep = runPrerename preren
+  case catchEverything $ checkRespectsScoping bindRem prep (TPLC.runQuote . run) prog of
+    Left exc         -> fail $ displayException exc
+    Right (Left err) -> fail $ displayPlc err
     Right (Right ()) -> success
 
--- | Test that a good renamer does not destroy scoping.
+-- | Test that a pass does not break global uniqueness.
 test_scopingGood ::
-  (Pretty (t ann), Scoping t) =>
+  (PrettyPlc (t NameAnn), TPLC.Rename (t NameAnn), Scoping t) =>
+  -- | The name of the pass we're about to test.
+  String ->
+  -- | A generator of types\/terms\/programs.
   AstGen (t ann) ->
+  -- | Whether binding removal is expected for the pass.
+  BindingRemoval ->
+  -- | Whether renaming is required before running the scoping tests. Note that the scoping tests
+  -- rely on global uniqueness themselves, hence for any pass that doesn't perform renaming
+  -- internally this needs to be 'PrerenameYes'.
+  Prerename ->
+  -- | The runner of the pass.
   (t NameAnn -> TPLC.Quote (t NameAnn)) ->
   TestTree
-test_scopingGood gen ren =
-  testPropertyNamed "renamer does not destroy scoping" "test_scopingGood" $
-    prop_scopingFor gen ren
+test_scopingGood pass gen bindRem preren run =
+  testPropertyNamed (pass ++ " does not break scoping and global uniqueness") "test_scopingGood" $
+    prop_scopingFor gen bindRem preren run
 
--- | Test that a renaming machinery destroys scoping when a bad renamer is chosen.
+-- | Test that a pass breaks global uniqueness.
 test_scopingBad ::
-  (Pretty (t ann), Scoping t, Monoid ren) =>
+  (PrettyPlc (t NameAnn), TPLC.Rename (t NameAnn), Scoping t) =>
+  -- | The name of the pass we're about to test.
+  String ->
+  -- | A generator of types\/terms\/programs.
+  AstGen (t ann) ->
+  -- | Whether binding removal is expected for the pass.
+  BindingRemoval ->
+  -- | Whether renaming is required before running the scoping tests. Note that the scoping tests
+  -- rely on global uniqueness themselves, hence for any pass that doesn't perform renaming
+  -- internally this needs to be 'PrerenameYes'.
+  Prerename ->
+  -- | The runner of the pass.
+  (t NameAnn -> TPLC.Quote (t NameAnn)) ->
+  TestTree
+test_scopingBad pass gen bindRem preren run =
+  testCase (pass ++ " breaks scoping or global uniqueness") . checkFails $
+    prop_scopingFor gen bindRem preren run
+
+-- | Test that the scoping machinery fails when the given renamer is spoiled in some way
+-- (e.g. marking is removed) to ensure that the machinery does catch bugs.
+test_scopingSpoilRenamer ::
+  (PrettyPlc (t NameAnn), TPLC.Rename (t NameAnn), Scoping t, Monoid ren) =>
   AstGen (t ann) ->
   (t NameAnn -> TPLC.Quote ()) ->
   (forall m. (TPLC.MonadQuote m, MonadReader ren m) => t NameAnn -> m (t NameAnn)) ->
   TestTree
-test_scopingBad gen mark renM =
+test_scopingSpoilRenamer gen mark renM =
   testGroup
-    "scoping bad"
-    [ testCase "wrong renaming destroys scoping" $
-        checkFails . prop_scopingFor gen $
-          brokenRename mark renM
-    , testCase "no renaming does not result in global uniqueness" $
-        checkFails . prop_scopingFor gen $
-          noRename mark renM
-    , testCase "renaming with no marking destroys scoping" $
-        checkFails . prop_scopingFor gen $
-          noMarkRename renM
+    "bad renaming"
+    [ test_scopingBad "wrong renaming" gen BindingRemovalNotOk PrerenameNo $
+        brokenRename mark renM
+    , test_scopingBad "no renaming" gen BindingRemovalNotOk PrerenameNo $
+        noRename mark renM
+    , test_scopingBad "renaming with no marking" gen BindingRemovalNotOk PrerenameNo $
+        noMarkRename renM
     ]

@@ -1,0 +1,4 @@
+case
+  integer
+  (constr (sop [integer]) 0 [(let ~y : integer = addInteger 1 2 in y)])
+  [(\(x : integer) -> 1)]

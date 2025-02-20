@@ -1,10 +1,11 @@
 # Experimental version of Marlowe validator for Cardano, with minimal dependencies
 
-The `marlowe` directory contains three components:
+The `marlowe` directory contains four components:
 
 - Validator source code: `marlowe-internal`
 - Benchmarking: `marlowe`
 - Executable: `marlowe-validators`
+- Budget tests: `plutus-benchmark-marlowe-tests`
 
 ## `marlowe-internal`
 
@@ -27,7 +28,7 @@ The benchmarking portion of the code lives in `marlowe/bench`, which depends on 
 
 (2) Profiling: look at each script in more detail, what functions are taking up the most budget? How can they be optimized?
 
-See [CONTRIBUTING.md](https://github.com/input-output-hk/plutus/blob/master/CONTRIBUTING.adoc#how-to-build-the-code-with-profiling) for profiling instructions.
+See [CONTRIBUTING.md](https://github.com/IntersectMBO/plutus/blob/master/CONTRIBUTING.adoc#how-to-build-the-code-with-profiling) for profiling instructions.
 
 Of the most common Marlowe transactions, input application transactions are the most relevant, as they are complex and can go over the execution limits at times. So there is a priority on examining those contracts.
 
@@ -58,6 +59,14 @@ Running `cabal run marlowe-validators` outputs the following files:
     - Benchmarking results: `marlowe-rolepayout.tsv`   
     - Flat UPLC files: `benchmarks/rolepayout/*-uplc.flat`
 
+## Running the budget tests
+
+To run the budget tests for Marlowe scripts, run `cabal test plutus-benchmark-marlowe-tests`. 
+
+Similar to the benchmarking, the budget tests use two sets of scripts: semantics (in `/marlowe/scripts/semantics`) and role payout (in `/marlowe/scripts/rolepayout`). The test names are the transaction IDs of each script.
+
+The golden files contain the counted CPU and memory budget of the scripts.
+
 ## Managing versions
 
 ### Versioning of `marlowe-internal`
@@ -68,4 +77,4 @@ Note that the off-chain code is evolving. However the on-chain code is very stab
 
 The production version of Marlowe currently uses (PlutusV2, vasilPV, plcVersion100 or 1.0.0). We should use the same combination in the benchmarking. Again we should make sure this is synced up.
 
-For documentation on Plutus vs PLC vs protocol version, see [here](https://github.com/input-output-hk/plutus/blob/master/plutus-ledger-api/src/PlutusLedgerApi/Common/Versions.hs)
+For documentation on Plutus vs PLC vs protocol version, see [here](https://github.com/IntersectMBO/plutus/blob/master/plutus-ledger-api/src/PlutusLedgerApi/Common/Versions.hs)

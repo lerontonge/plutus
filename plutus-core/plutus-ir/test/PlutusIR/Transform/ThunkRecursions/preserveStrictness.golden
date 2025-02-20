@@ -1,0 +1,9 @@
+letrec
+  ~x : integer = 1
+  ~y : integer = 2
+in
+let
+  !x : integer = x
+  !y : integer = y
+in
+1

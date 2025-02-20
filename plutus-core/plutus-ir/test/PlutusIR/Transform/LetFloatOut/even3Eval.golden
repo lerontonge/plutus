@@ -1,0 +1,20 @@
+let
+  data Bool | match_Bool where
+    True : Bool
+    False : Bool
+in
+letrec
+  data Nat | match_Nat where
+    Zero : Nat
+    Suc : Nat -> Nat
+in
+letrec
+  !even : Nat -> Bool
+    = \(n : Nat) -> match_Nat n {Bool} True (\(p : Nat) -> odd p)
+  !odd : Nat -> Bool
+    = \(n : Nat) -> match_Nat n {Bool} False (\(p : Nat) -> even p)
+in
+let
+  !three : Nat = Suc (Suc (Suc Zero))
+in
+even three

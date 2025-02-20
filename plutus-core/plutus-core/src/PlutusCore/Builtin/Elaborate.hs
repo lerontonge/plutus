@@ -1,3 +1,4 @@
+-- editorconfig-checker-disable-file
 -- GHC doesn't like the definition of 'TrySpecializeAsVar'.
 {-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
 
@@ -25,9 +26,6 @@ import Data.Type.Bool
 import Data.Type.Equality
 import GHC.TypeLits
 
--- The 'TryUnify' gadget explained in detail in
--- https://github.com/effectfully/sketches/tree/master/poly-type-of-saga/part1-try-unify
-
 -- | Check if two values of different kinds are in fact the same value (with the same kind).
 -- A heterogeneous version of @Type.Equality.(==)@.
 type (===) :: forall a b. a -> b -> Bool
@@ -35,6 +33,9 @@ type family x === y where
     x === x = 'True
     x === y = 'False
 
+-- Explained in detail in https://github.com/effectfully-ou/sketches/tree/cbf3ee9d11e0e3d4fc397ce7bf419418224122e2/poly-type-of-saga/part1-try-unify
+-- | Unify two values if possible, otherwise leave them alone. Useful for instantiating type
+-- variables.
 type TryUnify :: forall a b. Bool -> a -> b -> GHC.Constraint
 class same ~ (x === y) => TryUnify same x y
 instance (x === y) ~ 'False => TryUnify 'False x y
@@ -108,7 +109,6 @@ type family ThrowNoAppliedVars hole where
         ':$$: 'Text "Internal error: the context is not recognized. Please report"
         )
 
--- See Note [Elaboration of higher-kinded type variables].
 -- | Check that the higher-kinded type does not represent a PLC type variable and if it does.
 type CheckNotAppliedVar :: forall k. (GHC.Type -> GHC.Type) -> k -> GHC.Constraint
 type family CheckNotAppliedVar hole a where
@@ -178,12 +178,12 @@ class HandleHole uni i j val hole | uni i val hole -> j
 -- In the Rep context @x@ is attempted to be specialized as a 'TyVarRep'.
 instance
     ( TrySpecializeAsUnappliedVar i j RepHole 'Nothing x
-    , HandleHoles uni j k val x
+    , HandleHoles uni j k val RepHole x
     ) => HandleHole uni i k val (RepHole x)
 -- In the Type context @a@ is attempted to be specialized as a 'TyVarRep' wrapped in @Opaque val@.
 instance
     ( TrySpecializeAsUnappliedVar i j TypeHole ('Just (Opaque val)) a
-    , HandleHoles uni j k val a
+    , HandleHoles uni j k val TypeHole a
     ) => HandleHole uni i k val (TypeHole a)
 
 -- | Call 'HandleHole' over each hole from the list, threading the state (the fresh unique) through
@@ -225,13 +225,15 @@ type family UnknownTypeError val x where
 
 -- | Get the holes of @x@ and recurse into them.
 type HandleHoles
-    :: forall a. (GHC.Type -> GHC.Type) -> Nat -> Nat -> GHC.Type -> a -> GHC.Constraint
-type HandleHoles uni i j val x =
+    :: forall a. (GHC.Type -> GHC.Type) -> Nat -> Nat -> GHC.Type -> (GHC.Type -> GHC.Type) -> a -> GHC.Constraint
+type HandleHoles uni i j val hole x =
     -- Here we detect a stuck application of 'ToHoles' and throw 'UnknownTypeError' on it.
     -- See https://blog.csongor.co.uk/report-stuck-families for a detailed description of how
     -- detection of stuck type families works.
-    HandleHolesGo uni i j val (ThrowOnStuckList (UnknownTypeError val x) (ToHoles uni x))
+    HandleHolesGo uni i j val (ThrowOnStuckList (UnknownTypeError val x) (ToHoles uni hole x))
 
+-- Check out the following for a detailed explanation of the idea (after learning about 'TryUnify'):
+-- https://github.com/effectfully-ou/sketches/tree/cbf3ee9d11e0e3d4fc397ce7bf419418224122e2/poly-type-of-saga/part2-enumerate-type-vars
 -- | Specialize each Haskell type variable in @a@ as a type representing a PLC type variable.
 -- @i@ is a fresh id and @j@ is a final one as in 'TrySpecializeAsVar', but since 'HandleHole' can
 -- specialize multiple variables, @j@ can be equal to @i + n@ for any @n@ (including @0@).

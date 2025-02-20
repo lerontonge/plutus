@@ -15,6 +15,9 @@
 *.gls
 *.glsdefs
 *.ist
+*.ilg
+*.nlo
+*.nls
 *.out
 *.toc
 *.bcf
@@ -32,6 +35,7 @@ cabal-dev
 cabal.sandbox.config
 cabal.config
 cabal.project.local
+cabal.project.freeze
 
 # Stack
 .stack-work
@@ -53,6 +57,9 @@ stack.yaml.lock
 # Python
 __pycache__
 
+# NodeJS (used by scripts/blueprints/check-json-schemas.js as it depends on the AJV nodejs lib)
+node_modules
+
 # Nix
 result*
 pkgs/.cabal
@@ -67,6 +74,9 @@ pkgs/.stack
 .dir-locals.el
 *.code-workspace
 .*.sw*
+
+# Doc site
+yarn.lock
 
 # Misc
 act-event.json
@@ -93,9 +103,14 @@ node.sock
 .pre-commit-config.yaml
 secrets/*/.gpg-id
 ghcid.txt
+haddock*
+.private
+linkchecker-out.txt
 plutus-pab/test-node/testnet/db
 plutus-pab/test-node/alonzo-purple/db
+*.actual.json
 # profiling output files
 *.timelog
 *.stacks
 .nvimrc
+release-*

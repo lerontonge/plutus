@@ -1,0 +1,1 @@
+(\(x : integer) (y : integer) -> y) 5 6

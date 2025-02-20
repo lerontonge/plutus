@@ -1,0 +1,5 @@
+let
+  !unitval : all a. a -> a = /\a -> \(x : a) -> x
+  !unitval2 : all a. a -> a = unitval
+in
+unitval2

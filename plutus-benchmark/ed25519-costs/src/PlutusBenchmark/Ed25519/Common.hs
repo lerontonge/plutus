@@ -5,6 +5,7 @@
 {-# LANGUAGE TypeApplications    #-}
 {-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeOperators       #-}
+{-# LANGUAGE ViewPatterns        #-}
 
 {- | Check how many Ed25519 signature verifications we can perform within the
    limits specified in the protocol parameters.
@@ -20,6 +21,7 @@ import System.IO (Handle)
 import PlutusCore (DefaultFun, DefaultUni)
 import PlutusCore.Crypto.Hash qualified as Hash
 import PlutusTx qualified as Tx
+import PlutusTx.Plugin ()
 import UntypedPlutusCore qualified as UPLC
 
 import PlutusTx.IsData (toData, unstableMakeIsData)
@@ -64,16 +66,16 @@ unstableMakeIsData ''Inputs
 haskellHash :: HashFun
 haskellHash = Hash.sha2_256
 
-{-# INLINEABLE builtinHash #-}
 builtinHash :: BuiltinHashFun
 builtinHash = Tx.sha2_256
+{-# INLINEABLE builtinHash #-}
 
 -- Create a list containing n bytestrings of length l.  This could be better.
-{-# NOINLINE listOfSizedByteStrings #-}
-listOfSizedByteStrings :: Integer -> Integer -> [ByteString]
-listOfSizedByteStrings n l = unsafePerformIO . G.sample $
+listOfByteStringsOfLength :: Integer -> Integer -> [ByteString]
+listOfByteStringsOfLength n l = unsafePerformIO . G.sample $
                              G.list (R.singleton $ fromIntegral n)
                                   (G.bytes (R.singleton $ fromIntegral l))
+{-# OPAQUE listOfByteStringsOfLength #-}
 
 {- | Create a list of valid (verification key, message, signature, data key)
    quadruples.  The DSIGN infrastructure lets us do this in a fairly generic
@@ -92,7 +94,7 @@ mkInputs :: forall v msg .
 mkInputs n toMsg hash =
     Inputs $ map mkOneInput (zip seeds1 seeds2)
     where seedSize = 128
-          (seeds1, seeds2) = splitAt n $ listOfSizedByteStrings (2*n) seedSize
+          (seeds1, seeds2) = splitAt n $ listOfByteStringsOfLength (2*n) seedSize
           -- ^ Seeds for key generation. For some algorithms the seed has to be
           -- a certain minimal size and there's a SeedBytesExhausted error if
           -- it's not big enough; 128 is big enough for everything here though.
@@ -116,7 +118,6 @@ mkInputsAsData n hash = Tx.dataToBuiltinData $ toData (mkInputs @Ed25519DSIGN n 
 -- whether verification succeeds or fails.  If the inputs are generated
 -- correctly (which is checked by testHaskell when we run `main`) then
 -- verification always succeeds, but let's be careful just in case.
-{-# INLINEABLE verifyInputs #-}
 verifyInputs :: BuiltinHashFun -> BuiltinData -> Bool
 verifyInputs hash d =
     case Tx.fromBuiltinData d of
@@ -128,6 +129,7 @@ verifyInputs hash d =
                     let dkhash' = hash dk
                         hashesEq = dkhash == dkhash'
                     in Tx.verifyEd25519Signature vk dkhash sg && hashesEq
+{-# INLINEABLE verifyInputs #-}
 
 -- | Create the input data, convert it to BuiltinData, and apply the
 -- verification script to that.

@@ -3,9 +3,15 @@ layout: page
 title: Table of Contents
 ---
 
+# Table of Contents
+
+_This documentation has been produced from the code, which is developed as [Literate Agda](https://agda.readthedocs.io/en/latest/tools/literate-programming.html). Consequently, it contains all of the necessary details to recreate and check the formalisation, including compiler options such as:_
+
 ```
 {-# OPTIONS --rewriting #-}
 ```
+
+## Introduction
 
 The Formalisation is split into several sections.
 
@@ -44,10 +50,10 @@ constants. The [`Type`](Type.html) module contains kinds, contexts and
 types. Types are intrinsically scoped and kinded and variables are
 represented using De Bruijn indices. Parallel renaming and
 substitution are implemented in the
-[`Type.RenamingSubstitution`](Type/RenamingSubstitution.html) module
+[`Type.RenamingSubstitution`](Type.RenamingSubstitution.html) module
 and they are shown to be satisfy the functor and relative monad laws
 respectively. Equality of types is specified in the
-[`Type.Equality`](Type/Equality.html) module. Equality serves as a
+[`Type.Equality`](Type.Equality.html) module. Equality serves as a
 specification of type computation and is used in the normalisation
 proof.
 
@@ -90,7 +96,7 @@ notions of type used in the formalisation.
 
 ```
 import Builtin.Signature
-``` 
+```
 
 ## Declarative syntax
 
@@ -113,7 +119,6 @@ import Declarative.Examples.StdLib.Function
 import Declarative.Examples.StdLib.ChurchNat
 import Declarative.Examples.StdLib.Nat
 ```
-
 ## Algorithmic syntax
 
 Terms, reduction and evaluation where terms are indexed by normal
@@ -151,9 +156,10 @@ There are proofs of correspondence of the semantics of:
  * (typed) CEK machine
 
 ```
-import Algorithmic.BehaviouralEquivalence.ReductionvsCC
-import Algorithmic.BehaviouralEquivalence.CCvsCK
-import Algorithmic.BehaviouralEquivalence.CKvsCEK
+--TODO : Finish proofs for SOPs
+--import Algorithmic.BehaviouralEquivalence.ReductionvsCC
+--import Algorithmic.BehaviouralEquivalence.CCvsCK
+--import Algorithmic.BehaviouralEquivalence.CKvsCEK
 ```
 ## Extrinsically typed syntax a.k.a. Well Scoped Terms
 
@@ -162,7 +168,6 @@ Extrinsically typed terms, reduction and evaluation
 ```
 import Scoped
 import Scoped.RenamingSubstitution
-
 import Scoped.Extrication
 import Scoped.Extrication.RenamingSubstitution
 ```
@@ -188,7 +193,7 @@ import Check
 
 ## Executable
 
-This module is is compiled to Haskell and then can be compiled by ghc
+This module is compiled to Haskell and then can be compiled by ghc
 to produce an executable.
 
 ```

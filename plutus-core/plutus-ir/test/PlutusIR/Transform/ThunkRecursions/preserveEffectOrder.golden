@@ -1,0 +1,10 @@
+letrec
+  ~x : integer = error {integer}
+  ~y : integer -> integer
+    = trace {integer -> integer} "SHOULD NOT BE PRINTED" (\(z : integer) -> z)
+in
+let
+  !x : integer = x
+  !y : integer -> integer = y
+in
+1

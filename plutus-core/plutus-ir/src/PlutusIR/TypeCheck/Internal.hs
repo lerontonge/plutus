@@ -34,6 +34,7 @@ import PlutusIR.MkPir qualified as PIR
 import PlutusIR.Transform.Rename ()
 
 import PlutusCore (toPatFuncKind, tyVarDeclName, typeAnn)
+import PlutusCore.Core qualified as PLC
 import PlutusCore.Error as PLC
 import PlutusCore.MkPlc (mkIterTyFun)
 -- we mirror inferTypeM, checkTypeM of plc-tc and extend it for plutus-ir terms
@@ -58,7 +59,8 @@ and error type signatures and `throwError` to accommodate for the new pir type-e
 These modifications are currently necessary since PIR.Term ADT /= PLC.Term ADT.
 We then extend this ported `PIR.inferTypeM` with cases for inferring type of LetRec and LetNonRec.
 
-See Note [Notation] of PlutusCore.TypeCheck.Internal for the notation of inference rules, which appear in the comments.
+See Note [Typing rules] of PlutusCore.TypeCheck.Internal for the notation of
+inference rules, which appear in the comments.
 -}
 
 {- Note [PIR vs Paper Syntax Difference]
@@ -76,7 +78,7 @@ More importantly, since the type for the PIR data-constructor can be any syntax-
 the PIR user may have placed inside there a non-normalized type there. Currently, the PIR typechecker will
 assume the types of all data-constructors are prior normalized *before* type-checking, otherwise
 the PIR typechecking and PIR compilation will fail.
-See NOTE [Normalization of data-constructors' types] at PlutusIR.Compiler.Datatype
+See Note [Normalization of data-constructors' types] at PlutusIR.Compiler.Datatype
 -}
 
 {- Note [PIR vs Paper Escaping Types Difference]
@@ -112,7 +114,8 @@ type MonadTypeCheckPir err uni fun ann m =
 -- ##########################
 --  Taken from `PlutusCore.Typecheck.Internal`
 
--- See the [Global uniqueness] and [Type rules] notes.
+-- See Note [Global uniqueness in the type checker].
+-- See Note [Typing rules].
 -- | Check a 'Term' against a 'NormalizedType'.
 checkTypeM
     :: MonadTypeCheckPir err uni fun ann m
@@ -130,7 +133,8 @@ checkTypeM ann term vTy = do
         let expectedVTy = ExpectedExact $ unNormalized vTy
         throwing _TypeError $ TypeMismatch ann (void term) expectedVTy vTermTy
 
--- See the [Global uniqueness] and [Type rules] notes.
+-- See Note [Global uniqueness in the type checker].
+-- See Note [Typing rules].
 -- | Synthesize the type of a term, returning a normalized type.
 inferTypeM
     :: forall err m uni fun ann.
@@ -404,7 +408,7 @@ checkTypeFromBinding recurs = \case
        checkConRes ty =
            -- We earlier checked that datacons' type is *-kinded (using checkKindBinding), but this is not enough:
            -- we must also check that its result type is EXACTLY `[[TypeCon tyarg1] ... tyargn]` (ignoring annotations)
-           when (void (funResultType ty) /= void appliedTyCon) .
+           when (void (PLC.funTyResultType ty) /= void appliedTyCon) .
                throwing _TypeErrorExt $ MalformedDataConstrResType ann appliedTyCon
 
        -- if nonrec binding, make sure that type-constructor is not part of the data-constructor's argument types.
@@ -415,7 +419,7 @@ checkTypeFromBinding recurs = \case
                -- now we make sure that dataconstructor is not self-recursive, i.e. funargs don't contain tycon
                withTyVarDecls tyargs $ -- tycon not in scope here
                       -- OPTIMIZE: we use inferKind for scope-checking, but a simple ADT-traversal would suffice
-                      for_ (funTyArgs ty) inferKindM
+                      for_ (PLC.funTyArgs ty) inferKindM
 
 -- | Check that the in-Term's inferred type of a Let has kind *.
 -- Skip this check at the top-level, to allow top-level types to escape; see Note [PIR vs Paper Escaping Types Difference].

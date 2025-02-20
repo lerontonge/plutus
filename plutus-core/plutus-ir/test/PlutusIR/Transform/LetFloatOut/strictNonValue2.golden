@@ -1,0 +1,5 @@
+let
+  ~y : integer = 1
+  !x : integer = (\(z : integer) -> z) y
+in
+1

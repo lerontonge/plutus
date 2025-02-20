@@ -1,161 +1,201 @@
 -- editorconfig-checker-disable-file
+
 -- | The interface to Plutus V2 for the ledger.
 module PlutusLedgerApi.V2 (
-    -- * Scripts
-      SerialisedScript
-    , serialiseCompiledCode
-    , serialiseUPLC
-    , uncheckedDeserialiseUPLC
-    -- * Validating scripts
-    , assertScriptWellFormed
-    -- * Running scripts
-    , evaluateScriptRestricting
-    , evaluateScriptCounting
-    -- ** Protocol version
-    , ProtocolVersion (..)
-    -- ** Verbose mode and log output
-    , VerboseMode (..)
-    , LogOutput
-    -- * Costing-related types
-    , ExBudget (..)
-    , ExCPU (..)
-    , ExMemory (..)
-    , SatInt
-    -- ** Cost model
-    , EvaluationContext
-    , mkEvaluationContext
-    , ParamName (..)
-    , CostModelApplyError (..)
-    , CostModelParams
-    , assertWellFormedCostModelParams
-    -- * Context types
-    , ScriptContext(..)
-    , ScriptPurpose(..)
-    -- ** Supporting types used in the context types
-    -- *** ByteStrings
-    , BuiltinByteString
-    , toBuiltin
-    , fromBuiltin
-    -- *** Bytes
-    , LedgerBytes (..)
-    , fromBytes
-    -- *** Certificates
-    , DCert(..)
-    -- *** Credentials
-    , StakingCredential(..)
-    , Credential(..)
-    -- *** Value
-    , Value (..)
-    , CurrencySymbol (..)
-    , TokenName (..)
-    , singleton
-    , unionWith
-    , adaSymbol
-    , adaToken
-    -- *** Time
-    , POSIXTime (..)
-    , POSIXTimeRange
-    -- *** Types for representing transactions
-    , Address (..)
-    , PubKeyHash (..)
-    , TxId (..)
-    , TxInfo (..)
-    , TxOut(..)
-    , TxOutRef(..)
-    , TxInInfo(..)
-    , OutputDatum (..)
-    -- *** Intervals
-    , Interval (..)
-    , Extended (..)
-    , Closure
-    , UpperBound (..)
-    , LowerBound (..)
-    , always
-    , from
-    , to
-    , lowerBound
-    , upperBound
-    , strictLowerBound
-    , strictUpperBound
-    -- *** Association maps
-    , Map
-    , fromList
-    -- *** Newtypes and hash types
-    , ScriptHash (..)
-    , Redeemer (..)
-    , RedeemerHash (..)
-    , Datum (..)
-    , DatumHash (..)
-    -- * Data
-    , Data (..)
-    , BuiltinData (..)
-    , ToData (..)
-    , FromData (..)
-    , UnsafeFromData (..)
-    , toData
-    , fromData
-    , dataToBuiltinData
-    , builtinDataToData
-    -- * Errors
-    , EvaluationError (..)
-    , ScriptDecodeError (..)
-    ) where
+  -- * Scripts
+  Common.SerialisedScript,
+  Common.ScriptForEvaluation,
+  Common.serialisedScript,
+  Common.deserialisedScript,
+  Common.serialiseCompiledCode,
+  Common.serialiseUPLC,
+  deserialiseScript,
+  Common.uncheckedDeserialiseUPLC,
 
-import Control.Monad.Except (MonadError)
+  -- * Running scripts
+  evaluateScriptRestricting,
+  evaluateScriptCounting,
 
-import PlutusLedgerApi.Common as Common hiding (assertScriptWellFormed, evaluateScriptCounting,
-                                         evaluateScriptRestricting)
-import PlutusLedgerApi.Common qualified as Common (assertScriptWellFormed, evaluateScriptCounting,
-                                                   evaluateScriptRestricting)
-import PlutusLedgerApi.V1 hiding (ParamName, ScriptContext (..), TxInInfo (..), TxInfo (..),
-                           TxOut (..), assertScriptWellFormed, evaluateScriptCounting,
-                           evaluateScriptRestricting, mkEvaluationContext)
-import PlutusLedgerApi.V2.Contexts
-import PlutusLedgerApi.V2.EvaluationContext
-import PlutusLedgerApi.V2.ParamName
-import PlutusLedgerApi.V2.Tx (OutputDatum (..))
+  -- ** Protocol version
+  Common.MajorProtocolVersion (..),
 
-import PlutusCore.Data qualified as PLC
-import PlutusTx.AssocMap (Map, fromList)
+  -- ** Verbose mode and log output
+  Common.VerboseMode (..),
+  Common.LogOutput,
 
--- | An alias to the Plutus ledger language this module exposes at runtime.
---  MAYBE: Use CPP '__FILE__' + some TH to automate this.
-thisLedgerLanguage :: PlutusLedgerLanguage
-thisLedgerLanguage = PlutusV2
+  -- * Costing-related types
+  Common.ExBudget (..),
+  V1.ExCPU (..),
+  V1.ExMemory (..),
+  V1.SatInt (unSatInt),
+  V1.fromSatInt,
 
--- | Check if a 'Script' is "valid" according to a protocol version. At the moment this means "deserialises correctly", which in particular
--- implies that it is (almost certainly) an encoded script and the script does not mention any builtins unavailable in the given protocol version.
-assertScriptWellFormed :: MonadError ScriptDecodeError  m
-                       => ProtocolVersion -- ^ which protocol version to run the operation in
-                       -> SerialisedScript -- ^ the script to check for well-formedness
-                       -> m ()
-assertScriptWellFormed = Common.assertScriptWellFormed thisLedgerLanguage
+  -- ** Cost model
+  Common.EvaluationContext,
+  EvaluationContext.mkEvaluationContext,
+  ParamName.ParamName (..),
+  Common.CostModelApplyError (..),
+  Common.CostModelParams,
+  Common.assertWellFormedCostModelParams,
 
--- | Evaluates a script, returning the minimum budget that the script would need
--- to evaluate successfully. This will take as long as the script takes, if you need to
--- limit the execution time of the script also, you can use 'evaluateScriptRestricting', which
--- also returns the used budget.
-evaluateScriptCounting
-    :: ProtocolVersion -- ^ which protocol version to run the operation in
-    -> VerboseMode     -- ^ Whether to produce log output
-    -> EvaluationContext -- ^ Includes the cost model to use for tallying up the execution costs
-    -> SerialisedScript          -- ^ The script to evaluate
-    -> [PLC.Data]          -- ^ The arguments to the script
-    -> (LogOutput, Either EvaluationError ExBudget)
+  -- * Context types
+  Contexts.ScriptContext (..),
+  Contexts.ScriptPurpose (..),
+
+  -- ** Supporting types used in the context types
+
+  -- *** Builtins
+  Common.BuiltinByteString,
+  Common.toBuiltin,
+  Common.fromBuiltin,
+  Common.toOpaque,
+  Common.fromOpaque,
+
+  -- *** Bytes
+  V1.LedgerBytes (..),
+  V1.fromBytes,
+
+  -- *** Certificates
+  V1.DCert (..),
+
+  -- *** Credentials
+  V1.StakingCredential (..),
+  V1.Credential (..),
+
+  -- *** Value
+  V1.Value (..),
+  V1.CurrencySymbol (..),
+  V1.TokenName (..),
+  V1.singleton,
+  V1.unionWith,
+  V1.adaSymbol,
+  V1.adaToken,
+  V1.Lovelace (..),
+
+  -- *** Time
+  V1.POSIXTime (..),
+  V1.POSIXTimeRange,
+
+  -- *** Types for representing transactions
+  V1.Address (..),
+  V1.PubKeyHash (..),
+  Tx.TxId (..),
+  Contexts.TxInfo (..),
+  Tx.TxOut (..),
+  Tx.TxOutRef (..),
+  Contexts.TxInInfo (..),
+  Tx.OutputDatum (..),
+
+  -- *** Intervals
+  V1.Interval (..),
+  V1.Extended (..),
+  V1.Closure,
+  V1.UpperBound (..),
+  V1.LowerBound (..),
+  V1.always,
+  V1.from,
+  V1.to,
+  V1.lowerBound,
+  V1.upperBound,
+  V1.strictLowerBound,
+  V1.strictUpperBound,
+
+  -- *** Association maps
+  Map,
+  unsafeFromList,
+
+  -- *** Newtypes and hash types
+  V1.ScriptHash (..),
+  V1.Redeemer (..),
+  V1.RedeemerHash (..),
+  V1.Datum (..),
+  V1.DatumHash (..),
+
+  -- * Data
+  Common.Data (..),
+  Common.BuiltinData (..),
+  Common.ToData (..),
+  Common.FromData (..),
+  Common.UnsafeFromData (..),
+  Common.toData,
+  Common.fromData,
+  Common.unsafeFromData,
+  Common.dataToBuiltinData,
+  Common.builtinDataToData,
+
+  -- * Errors
+  Common.MonadError,
+  Common.EvaluationError (..),
+  Common.ScriptDecodeError (..),
+) where
+
+import PlutusLedgerApi.Common qualified as Common
+import PlutusLedgerApi.V1 qualified as V1
+import PlutusLedgerApi.V2.Contexts qualified as Contexts
+import PlutusLedgerApi.V2.EvaluationContext qualified as EvaluationContext
+import PlutusLedgerApi.V2.ParamName qualified as ParamName
+import PlutusLedgerApi.V2.Tx qualified as Tx
+
+import PlutusTx.AssocMap (Map, unsafeFromList)
+
+{- | An alias to the Plutus ledger language this module exposes at runtime.
+ MAYBE: Use CPP '__FILE__' + some TH to automate this.
+-}
+thisLedgerLanguage :: Common.PlutusLedgerLanguage
+thisLedgerLanguage = Common.PlutusV2
+
+{- | The deserialization from a serialised script into a `ScriptForEvaluation`,
+ready to be evaluated on-chain.
+Called inside phase-1 validation (i.e., deserialisation error is a phase-1 error).
+-}
+deserialiseScript ::
+  forall m.
+  (Common.MonadError Common.ScriptDecodeError m) =>
+  -- | which major protocol version the script was submitted in.
+  Common.MajorProtocolVersion ->
+  -- | the script to deserialise.
+  Common.SerialisedScript ->
+  m Common.ScriptForEvaluation
+deserialiseScript = Common.deserialiseScript thisLedgerLanguage
+
+{- | Evaluates a script, returning the minimum budget that the script would need
+to evaluate successfully. This will take as long as the script takes, if you need to
+limit the execution time of the script also, you can use 'evaluateScriptRestricting', which
+also returns the used budget.
+-}
+evaluateScriptCounting ::
+  -- | Which major protocol version to run the operation in
+  Common.MajorProtocolVersion ->
+  -- | Whether to produce log output
+  Common.VerboseMode ->
+  -- | Includes the cost model to use for tallying up the execution costs
+  Common.EvaluationContext ->
+  -- | The script to evaluate
+  Common.ScriptForEvaluation ->
+  -- | The arguments to the script
+  [Common.Data] ->
+  (Common.LogOutput, Either Common.EvaluationError Common.ExBudget)
 evaluateScriptCounting = Common.evaluateScriptCounting thisLedgerLanguage
 
--- | Evaluates a script, with a cost model and a budget that restricts how many
--- resources it can use according to the cost model. Also returns the budget that
--- was actually used.
---
--- Can be used to calculate budgets for scripts, but even in this case you must give
--- a limit to guard against scripts that run for a long time or loop.
-evaluateScriptRestricting
-    :: ProtocolVersion -- ^ which protocol version to run the operation in
-    -> VerboseMode     -- ^ Whether to produce log output
-    -> EvaluationContext -- ^ Includes the cost model to use for tallying up the execution costs
-    -> ExBudget        -- ^ The resource budget which must not be exceeded during evaluation
-    -> SerialisedScript          -- ^ The script to evaluate
-    -> [PLC.Data]          -- ^ The arguments to the script
-    -> (LogOutput, Either EvaluationError ExBudget)
+{- | Evaluates a script, with a cost model and a budget that restricts how many
+resources it can use according to the cost model. Also returns the budget that
+was actually used.
+
+Can be used to calculate budgets for scripts, but even in this case you must give
+a limit to guard against scripts that run for a long time or loop.
+-}
+evaluateScriptRestricting ::
+  -- | Which major protocol version to run the operation in
+  Common.MajorProtocolVersion ->
+  -- | Whether to produce log output
+  Common.VerboseMode ->
+  -- | Includes the cost model to use for tallying up the execution costs
+  Common.EvaluationContext ->
+  -- | The resource budget which must not be exceeded during evaluation
+  Common.ExBudget ->
+  -- | The script to evaluate
+  Common.ScriptForEvaluation ->
+  -- | The arguments to the script
+  [Common.Data] ->
+  (Common.LogOutput, Either Common.EvaluationError Common.ExBudget)
 evaluateScriptRestricting = Common.evaluateScriptRestricting thisLedgerLanguage

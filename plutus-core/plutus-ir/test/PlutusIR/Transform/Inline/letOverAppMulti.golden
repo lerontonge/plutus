@@ -1,0 +1,8 @@
+let
+  !idFun : integer -> integer = \(y : integer) -> y
+in
+let
+  !k : (integer -> integer) -> integer -> integer
+    = \(x : integer -> integer) -> idFun
+in
+idFun 6

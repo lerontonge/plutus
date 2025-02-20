@@ -10,6 +10,8 @@ module PlutusIR.Core.Plated
     , termSubkinds
     , termBindings
     , termVars
+    , termConstants
+    , termConstantsDeep
     , typeSubtypes
     , typeSubtypesDeep
     , typeSubkinds
@@ -27,19 +29,23 @@ module PlutusIR.Core.Plated
     , termUniques
     , termUniquesDeep
     , varDeclSubtypes
+    , underBinders
+    , _Constant
     ) where
 
 import PlutusCore qualified as PLC
+import PlutusCore.Arity
 import PlutusCore.Core (tyVarDeclSubkinds, typeSubkinds, typeSubtypes, typeSubtypesDeep,
                         typeUniques, typeUniquesDeep, varDeclSubtypes)
 import PlutusCore.Flat ()
-import PlutusCore.Name qualified as PLC
+import PlutusCore.Name.Unique qualified as PLC
 
 import PlutusIR.Core.Type
 
 import Control.Lens hiding (Strict, (<.>))
 import Data.Functor.Apply
 import Data.Functor.Bind.Class
+import Universe
 
 infixr 6 <^>
 
@@ -47,36 +53,39 @@ infixr 6 <^>
 (<^>) :: Fold s a -> Fold s a -> Fold s a
 (f1 <^> f2) g s = f1 g s *> f2 g s
 
-{-# INLINE bindingSubterms #-}
+-- | View a term as a constant.
+_Constant :: Prism' (Term tyname name uni fun a) (a, PLC.Some (PLC.ValueOf uni))
+_Constant = prism' (uncurry Constant) (\case { Constant a v -> Just (a, v); _ -> Nothing })
+
 -- | Get all the direct child 'Term's of the given 'Binding'.
 bindingSubterms :: Traversal' (Binding tyname name uni fun a) (Term tyname name uni fun a)
 bindingSubterms f = \case
     TermBind x s d t  -> TermBind x s d <$> f t
     b@TypeBind {}     -> pure b
     d@DatatypeBind {} -> pure d
+{-# INLINE bindingSubterms #-}
 
-{-# INLINE datatypeSubtypes #-}
 -- | Get all the direct child 'Type's of the given 'Datatype'.
 datatypeSubtypes :: Traversal' (Datatype tyname name uni a) (Type tyname uni a)
 datatypeSubtypes f (Datatype a n vs m cs) = Datatype a n vs m <$> (traverse . varDeclSubtypes) f cs
+{-# INLINE datatypeSubtypes #-}
 
-{-# INLINE bindingSubtypes #-}
 -- | Get all the direct child 'Type's of the given 'Binding'.
 bindingSubtypes :: Traversal' (Binding tyname name uni fun a) (Type tyname uni a)
 bindingSubtypes f = \case
     TermBind x s d t -> TermBind x s <$> varDeclSubtypes f d <*> pure t
     DatatypeBind x d -> DatatypeBind x <$> datatypeSubtypes f d
     TypeBind a d ty  -> TypeBind a d <$> f ty
+{-# INLINE bindingSubtypes #-}
 
-{-# INLINE datatypeSubkinds #-}
 -- | Get all the direct child 'Kind's of the given 'Datatype'.
 datatypeSubkinds :: Traversal' (Datatype tyname name uni a) (Kind a)
 datatypeSubkinds f (Datatype a n vs m cs) = do
     n' <- tyVarDeclSubkinds f n
     vs' <- traverse (tyVarDeclSubkinds f) vs
     pure $ Datatype a n' vs' m cs
+{-# INLINE datatypeSubkinds #-}
 
-{-# INLINE datatypeTyNames #-}
 -- | Get all the type-names introduces by a datatype
 datatypeTyNames :: Traversal' (Datatype tyname name uni a) tyname
 datatypeTyNames f (Datatype a2 tvdecl tvdecls n vdecls) =
@@ -85,14 +94,15 @@ datatypeTyNames f (Datatype a2 tvdecl tvdecls n vdecls) =
         <*> traverse (PLC.tyVarDeclName f) tvdecls
         <*> pure n
         <*> pure vdecls
+{-# INLINE datatypeTyNames #-}
 
-{-# INLINE bindingSubkinds #-}
 -- | Get all the direct child 'Kind's of the given 'Binding'.
 bindingSubkinds :: Traversal' (Binding tyname name uni fun a) (Kind a)
 bindingSubkinds f = \case
     t@TermBind {}    -> pure t
     DatatypeBind x d -> DatatypeBind x <$> datatypeSubkinds f d
     TypeBind a d ty  -> TypeBind a <$> tyVarDeclSubkinds f d <*> pure ty
+{-# INLINE bindingSubkinds #-}
 
 -- | All the identifiers/names introduced by this binding
 -- In case of a datatype-binding it has multiple identifiers: the type, constructors, match function
@@ -108,7 +118,23 @@ bindingIds f = \case
                     <.> PLC.theUnique f n
                     <.*> traverse1Maybe ((PLC.varDeclName . PLC.theUnique) f) vdecls)
 
-{-# INLINE termSubkinds #-}
+-- | Get all the direct constants of the given 'Term' from 'Constant's.
+termConstants :: Traversal' (Term tyname name uni fun ann) (Some (ValueOf uni))
+termConstants f term0 = case term0 of
+    Constant ann val -> Constant ann <$> f val
+    Let{}            -> pure term0
+    Var{}            -> pure term0
+    TyAbs{}          -> pure term0
+    LamAbs{}         -> pure term0
+    TyInst{}         -> pure term0
+    IWrap{}          -> pure term0
+    Error{}          -> pure term0
+    Apply{}          -> pure term0
+    Unwrap{}         -> pure term0
+    Builtin{}        -> pure term0
+    Constr{}         -> pure term0
+    Case{}           -> pure term0
+
 -- | Get all the direct child 'Kind's of the given 'Term'.
 termSubkinds :: Traversal' (Term tyname name uni fun ann) (Kind ann)
 termSubkinds f term0 = case term0 of
@@ -125,8 +151,8 @@ termSubkinds f term0 = case term0 of
     Builtin{}       -> pure term0
     Constr{}        -> pure term0
     Case{}          -> pure term0
+{-# INLINE termSubkinds #-}
 
-{-# INLINE termSubterms #-}
 -- | Get all the direct child 'Term's of the given 'Term', including those within 'Binding's.
 termSubterms :: Traversal' (Term tyname name uni fun a) (Term tyname name uni fun a)
 termSubterms f = \case
@@ -143,12 +169,12 @@ termSubterms f = \case
     v@Var {}          -> pure v
     c@Constant {}     -> pure c
     b@Builtin {}      -> pure b
+{-# INLINE termSubterms #-}
 
 -- | Get all the transitive child 'Term's of the given 'Term'.
 termSubtermsDeep :: Fold (Term tyname name uni fun ann) (Term tyname name uni fun ann)
 termSubtermsDeep = cosmosOf termSubterms
 
-{-# INLINE termSubtypes #-}
 -- | Get all the direct child 'Type's of the given 'Term', including those within 'Binding's.
 termSubtypes :: Traversal' (Term tyname name uni fun a) (Type tyname uni a)
 termSubtypes f = \case
@@ -165,17 +191,18 @@ termSubtypes f = \case
     v@Var {}          -> pure v
     c@Constant {}     -> pure c
     b@Builtin {}      -> pure b
+{-# INLINE termSubtypes #-}
 
 -- | Get all the transitive child 'Type's of the given 'Term'.
 termSubtypesDeep :: Fold (Term tyname name uni fun ann) (Type tyname uni ann)
 termSubtypesDeep = termSubtermsDeep . termSubtypes . typeSubtypesDeep
 
-{-# INLINE termBindings #-}
 -- | Get all the direct child 'Binding's of the given 'Term'.
 termBindings :: Traversal' (Term tyname name uni fun a) (Binding tyname name uni fun a)
 termBindings f = \case
     Let x r bs t -> Let x r <$> traverse f bs <*> pure t
     t            -> pure t
+{-# INLINE termBindings #-}
 
 -- | Get all the direct child 'Unique's of the given 'Term' (including the type-level ones).
 termUniques
@@ -202,6 +229,10 @@ termVars f term0 = case term0 of
     Var ann n -> Var ann <$> f n
     t         -> pure t
 
+-- | Get all the transitive child 'Constant's of the given 'Term'.
+termConstantsDeep :: Fold (Term tyname name uni fun ann) (Some (ValueOf uni))
+termConstantsDeep = termSubtermsDeep . termConstants
+
 -- | Get all the transitive child 'Unique's of the given 'Term' (including the type-level ones).
 termUniquesDeep
     :: PLC.HasUniques (Term tyname name uni fun ann)
@@ -225,3 +256,11 @@ bindingTyNames f = \case
    TypeBind a d ty   -> TypeBind a <$> PLC.tyVarDeclName f d <*> pure ty
    DatatypeBind a1 d -> DatatypeBind a1 <$> datatypeTyNames f d
    b@TermBind{}      -> pure b
+
+-- | Focus on the term under the binders corresponding to the given arity.
+-- e.g. for arity @[TermParam, TermParam]@ and term @\x y -> t@ it focusses on @t@.
+underBinders :: Arity -> Traversal' (Term tyname name uni fun a) (Term tyname name uni fun a)
+underBinders [] f t                                = f t
+underBinders (TermParam:arity) f (LamAbs a n ty t) = LamAbs a n ty <$> underBinders arity f t
+underBinders (TypeParam:arity) f (TyAbs a ty k t)  = TyAbs a ty k <$> underBinders arity f t
+underBinders _ _ t                                 = pure t

@@ -12,17 +12,19 @@
          (iwrap
             (\(self :: * -> *) a -> self a -> a)
             (a -> b)
-            (\(s : (\a -> ifix (\(self :: * -> *) a -> self a -> a) a) (a -> b))
-              (x : a) ->
+            (\(s :
+                 (\a -> ifix (\(self :: * -> *) a -> self a -> a) a)
+                   (a -> b)) ->
                f
-                 ((/\a ->
-                     \(s :
-                         (\a -> ifix (\(self :: * -> *) a -> self a -> a) a)
-                           a) ->
-                       unwrap s s)
-                    {a -> b}
-                    s)
-                 x)))
+                 (\(x : a) ->
+                    (/\a ->
+                       \(s :
+                           (\a -> ifix (\(self :: * -> *) a -> self a -> a) a)
+                             a) ->
+                         unwrap s s)
+                      {a -> b}
+                      s
+                      x))))
     {data}
     {data}
     (\(rec : data -> data) (d : data) ->
@@ -33,23 +35,7 @@
              (fList : list data -> r)
              (fI : integer -> r)
              (fB : bytestring -> r) ->
-              (Left chooseData)
-                {unit -> r}
-                d
-                (\(u : unit) ->
-                   (/\a b c ->
-                      \(f : a -> b -> c) (p : pair a b) ->
-                        f ((Left fstPair) {a} {b} p) ((Left sndPair) {a} {b} p))
-                     {integer}
-                     {list data}
-                     {r}
-                     fConstr
-                     ((Left unConstrData) d))
-                (\(u : unit) -> fMap ((Left unMapData) d))
-                (\(u : unit) -> fList ((Left unListData) d))
-                (\(u : unit) -> fI ((Left unIData) d))
-                (\(u : unit) -> fB ((Left unBData) d))
-                ())
+              (Left caseData) {r} fConstr fMap fList fI fB d)
          d
          {data}
          (\(i : integer) (ds : list data) ->
@@ -74,38 +60,29 @@
                                       ifix
                                         (\(self :: * -> *) a -> self a -> a)
                                         a)
-                                     (a -> b))
-                                (x : a) ->
+                                     (a -> b)) ->
                                  f
-                                   ((/\a ->
-                                       \(s :
-                                           (\a ->
-                                              ifix
-                                                (\(self :: * -> *) a ->
-                                                   self a -> a)
-                                                a)
-                                             a) ->
-                                         unwrap s s)
-                                      {a -> b}
-                                      s)
-                                   x)))
+                                   (\(x : a) ->
+                                      (/\a ->
+                                         \(s :
+                                             (\a ->
+                                                ifix
+                                                  (\(self :: * -> *) a ->
+                                                     self a -> a)
+                                                  a)
+                                               a) ->
+                                           unwrap s s)
+                                        {a -> b}
+                                        s
+                                        x))))
                       {list a}
                       {list a}
                       (\(rec : list a -> list a) (xs : list a) ->
                          (/\a ->
-                            \(x : list a) ->
+                            \(xs : list a) ->
                               /\r ->
                                 \(z : r) (f : a -> list a -> r) ->
-                                  (Left chooseList)
-                                    {a}
-                                    {unit -> r}
-                                    x
-                                    (\(u : unit) -> z)
-                                    (\(u : unit) ->
-                                       f
-                                         ((Left headList) {a} x)
-                                         ((Left tailList) {a} x))
-                                    ())
+                                  (Left caseList) {a} {r} z f xs)
                            {a}
                            xs
                            {list a}
@@ -136,38 +113,29 @@
                                       ifix
                                         (\(self :: * -> *) a -> self a -> a)
                                         a)
-                                     (a -> b))
-                                (x : a) ->
+                                     (a -> b)) ->
                                  f
-                                   ((/\a ->
-                                       \(s :
-                                           (\a ->
-                                              ifix
-                                                (\(self :: * -> *) a ->
-                                                   self a -> a)
-                                                a)
-                                             a) ->
-                                         unwrap s s)
-                                      {a -> b}
-                                      s)
-                                   x)))
+                                   (\(x : a) ->
+                                      (/\a ->
+                                         \(s :
+                                             (\a ->
+                                                ifix
+                                                  (\(self :: * -> *) a ->
+                                                     self a -> a)
+                                                  a)
+                                               a) ->
+                                           unwrap s s)
+                                        {a -> b}
+                                        s
+                                        x))))
                       {list a}
                       {list a}
                       (\(rec : list a -> list a) (xs : list a) ->
                          (/\a ->
-                            \(x : list a) ->
+                            \(xs : list a) ->
                               /\r ->
                                 \(z : r) (f : a -> list a -> r) ->
-                                  (Left chooseList)
-                                    {a}
-                                    {unit -> r}
-                                    x
-                                    (\(u : unit) -> z)
-                                    (\(u : unit) ->
-                                       f
-                                         ((Left headList) {a} x)
-                                         ((Left tailList) {a} x))
-                                    ())
+                                  (Left caseList) {a} {r} z f xs)
                            {a}
                            xs
                            {list a}
@@ -206,38 +174,29 @@
                                       ifix
                                         (\(self :: * -> *) a -> self a -> a)
                                         a)
-                                     (a -> b))
-                                (x : a) ->
+                                     (a -> b)) ->
                                  f
-                                   ((/\a ->
-                                       \(s :
-                                           (\a ->
-                                              ifix
-                                                (\(self :: * -> *) a ->
-                                                   self a -> a)
-                                                a)
-                                             a) ->
-                                         unwrap s s)
-                                      {a -> b}
-                                      s)
-                                   x)))
+                                   (\(x : a) ->
+                                      (/\a ->
+                                         \(s :
+                                             (\a ->
+                                                ifix
+                                                  (\(self :: * -> *) a ->
+                                                     self a -> a)
+                                                  a)
+                                               a) ->
+                                           unwrap s s)
+                                        {a -> b}
+                                        s
+                                        x))))
                       {list a}
                       {list a}
                       (\(rec : list a -> list a) (xs : list a) ->
                          (/\a ->
-                            \(x : list a) ->
+                            \(xs : list a) ->
                               /\r ->
                                 \(z : r) (f : a -> list a -> r) ->
-                                  (Left chooseList)
-                                    {a}
-                                    {unit -> r}
-                                    x
-                                    (\(u : unit) -> z)
-                                    (\(u : unit) ->
-                                       f
-                                         ((Left headList) {a} x)
-                                         ((Left tailList) {a} x))
-                                    ())
+                                  (Left caseList) {a} {r} z f xs)
                            {a}
                            xs
                            {list a}

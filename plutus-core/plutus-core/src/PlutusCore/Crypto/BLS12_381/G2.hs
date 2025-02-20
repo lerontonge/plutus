@@ -11,8 +11,9 @@ module PlutusCore.Crypto.BLS12_381.G2
     , hashToGroup
     , compress
     , uncompress
-    , zero
-    , generator
+    , offchain_zero
+    , compressed_zero
+    , compressed_generator
     , memSizeBytes
     , compressedSizeBytes
     ) where
@@ -28,6 +29,7 @@ import Text.PrettyBy (PrettyBy)
 import Control.DeepSeq (NFData, rnf, rwhnf)
 import Data.ByteString (ByteString, length)
 import Data.Coerce (coerce)
+import Data.Hashable
 import Data.Proxy (Proxy (..))
 import Flat
 import Prettyprinter
@@ -40,39 +42,45 @@ instance Show Element where
 instance Pretty Element where
     pretty = pretty . show
 instance PrettyBy ConstConfig Element
+{- | We don't support direct flat encoding of G1 elements because of the expense
+   of on-chain uncompression.  Users should convert between G1 elements and
+   bytestrings using `compress` and `uncompress`: the bytestrings can be
+   flat-encoded in the usual way. -}
 instance Flat Element where
-    decode = do
-        x <- decode
-        case uncompress x of
-             Left err -> fail $ show err
-             Right e  -> pure e
-    encode = encode . compress
-    size = size . compress
+    -- This might happen on the chain, so `fail` rather than `error`.
+    decode = fail "Flat decoding is not supported for objects of type bls12_381_G2_element: use bls12_381_G2_uncompress on a bytestring instead."
+    -- This will be a Haskell runtime error, but encoding doesn't happen on chain,
+    -- so it's not too bad.
+    encode = error "Flat encoding is not supported for objects of type bls12_381_G2_element: use bls12_381_G2_compress to obtain a bytestring instead."
+    size _ = id
 instance NFData Element where
     rnf (Element x) = rwhnf x  -- Just to be on the safe side.
 
+instance Hashable Element where
+    hashWithSalt salt = hashWithSalt salt . compress
+
 -- | Add two G2 group elements
-{-# INLINE add #-}
 add :: Element -> Element -> Element
-add = coerce BlstBindings.blsAddOrDouble
+add = coerce (BlstBindings.blsAddOrDouble @BlstBindings.Curve2)
+{-# INLINE add #-}
 
 -- | Negate a G2 group element
-{-# INLINE neg #-}
 neg :: Element -> Element
-neg = coerce BlstBindings.blsNeg
+neg = coerce (BlstBindings.blsNeg @BlstBindings.Curve2)
+{-# INLINE neg #-}
 
-{-# INLINE scalarMul #-}
 scalarMul :: Integer -> Element -> Element -- Other way round from library function
-scalarMul = coerce $ flip BlstBindings.blsMult
+scalarMul = coerce $ flip (BlstBindings.blsMult @BlstBindings.Curve2)
+{-# INLINE scalarMul #-}
 
 {- | Compress a G2 element to a bytestring. This serialises a curve point to its x
  coordinate only, using an extra bit to determine which of two possible y
  coordinates the point has. The compressed bytestring is 96 bytes long. See
  https://github.com/supranational/blst#serialization-format
 -}
-{-# INLINE compress #-}
 compress :: Element -> ByteString
-compress = coerce BlstBindings.blsCompress
+compress = coerce (BlstBindings.blsCompress @BlstBindings.Curve2)
+{-# INLINE compress #-}
 
 {- | Uncompress a bytestring to get a G2 point.  This will fail if any of the
    following are true:
@@ -83,9 +91,9 @@ compress = coerce BlstBindings.blsCompress
      * The bytestring does represent a point on the E2 curve, but the
        point is not in the G2 subgroup
 -}
-{-# INLINE uncompress #-}
 uncompress :: ByteString -> Either BlstBindings.BLSTError Element
-uncompress = coerce BlstBindings.blsUncompress
+uncompress = coerce (BlstBindings.blsUncompress @BlstBindings.Curve2)
+{-# INLINE uncompress #-}
 
 -- Take an arbitrary bytestring and a Domain Separation Tag and hash them to a
 -- get point in G2.  See Note [Hashing and Domain Separation Tags].
@@ -93,16 +101,22 @@ hashToGroup :: ByteString -> ByteString -> Either BLS12_381_Error Element
 hashToGroup msg dst =
     if Data.ByteString.length dst > 255
     then Left HashToCurveDstTooBig
-    else Right . Element $ BlstBindings.blsHash msg (Just dst) Nothing
+    else Right . Element $ BlstBindings.blsHash @BlstBindings.Curve2 msg (Just dst) Nothing
 
--- | The zero element of G2
-zero :: Element
-zero = coerce BlstBindings.Internal.blsZero
+-- | The zero element of G2.  This cannot be flat-serialised and is provided
+-- only for off-chain testing.
+offchain_zero :: Element
+offchain_zero = coerce (BlstBindings.Internal.blsZero @BlstBindings.Curve2)
 
--- | The standard generator of G2
-generator :: Element
-generator = coerce BlstBindings.Internal.blsGenerator
+-- | The zero element of G2 compressed into a bytestring.  This is provided for
+-- convenience in PlutusTx and is not exported as a builtin.
+compressed_zero :: ByteString
+compressed_zero = compress $ coerce (BlstBindings.Internal.blsZero @BlstBindings.Curve2)
 
+-- | The standard generator of G2 compressed into a bytestring.  This is
+-- provided for convenience in PlutusTx and is not exported as a builtin.
+compressed_generator :: ByteString
+compressed_generator = compress $ coerce (BlstBindings.Internal.blsGenerator @BlstBindings.Curve2)
 
 -- Utilities (not exposed as builtins)
 

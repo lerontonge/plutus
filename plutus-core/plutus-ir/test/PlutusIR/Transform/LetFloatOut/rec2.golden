@@ -1,0 +1,15 @@
+let
+  !i2 : integer = 3
+in
+\(x : integer) ->
+  (\(y : integer) ->
+     letrec
+       !j : integer = addInteger x k
+       !k : integer = addInteger y j
+     in
+     let
+       !c : integer = addInteger 1 i2
+       !i1 : integer = addInteger k 3
+     in
+     addInteger 5 (addInteger j i2))
+    1

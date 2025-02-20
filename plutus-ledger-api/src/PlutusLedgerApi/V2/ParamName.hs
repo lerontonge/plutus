@@ -190,5 +190,21 @@ data ParamName =
   | VerifySchnorrSecp256k1Signature'cpu'arguments'intercept
   | VerifySchnorrSecp256k1Signature'cpu'arguments'slope
   | VerifySchnorrSecp256k1Signature'memory'arguments
+  | IntegerToByteString'cpu'arguments'c0
+  | IntegerToByteString'cpu'arguments'c1
+  | IntegerToByteString'cpu'arguments'c2
+  | IntegerToByteString'memory'arguments'intercept
+  | IntegerToByteString'memory'arguments'slope
+  | ByteStringToInteger'cpu'arguments'c0
+  | ByteStringToInteger'cpu'arguments'c1
+  | ByteStringToInteger'cpu'arguments'c2
+  | ByteStringToInteger'memory'arguments'intercept
+  | ByteStringToInteger'memory'arguments'slope
+  | LengthOfArray'cpu'arguments
+  | LengthOfArray'memory'arguments
+  | ListToArray'cpu'arguments
+  | ListToArray'memory'arguments
+  | IndexArray'cpu'arguments
+  | IndexArray'memory'arguments
     deriving stock (Eq, Ord, Enum, Ix, Bounded, Generic)
     deriving IsParamName via (GenericParamName ParamName)

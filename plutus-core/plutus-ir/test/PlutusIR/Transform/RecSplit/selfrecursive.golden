@@ -1,0 +1,12 @@
+letrec
+  unit = all a. unit -> unit
+in
+letrec
+  data Nat | match_Nat where
+    Zero : Nat
+    Suc : Nat -> Nat
+in
+letrec
+  ~r : integer = addInteger r 3
+in
+r

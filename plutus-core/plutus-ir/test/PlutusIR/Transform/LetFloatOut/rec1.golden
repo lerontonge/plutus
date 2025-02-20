@@ -1,0 +1,11 @@
+let
+  !i2 : integer = 3
+in
+letrec
+  !j : integer = addInteger 3 k
+  !k : integer = addInteger 3 j
+in
+let
+  !i1 : integer = addInteger k 3
+in
+addInteger 5 (addInteger j i2)

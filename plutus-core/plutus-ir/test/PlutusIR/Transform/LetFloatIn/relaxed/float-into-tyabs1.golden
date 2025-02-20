@@ -1,0 +1,14 @@
+/\a ->
+  \(a : a) ->
+    (let
+        data (Tuple2 :: * -> * -> *) a b | Tuple2_match where
+          Tuple2 : a -> b -> Tuple2 a b
+      in
+      Tuple2)
+      {a}
+      {integer}
+      a
+      (let
+        ~y : integer = addInteger 1 2
+      in
+      addInteger y y)

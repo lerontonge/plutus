@@ -1,0 +1,10 @@
+let
+  !x : integer = 1
+in
+let
+  !y : integer -> integer -> integer = \(a : integer) (b : integer) -> 2
+in
+let
+  !z : integer = 3
+in
+y x z

@@ -1,0 +1,10 @@
+let
+  data (Maybe :: * -> *) a | Maybe_match where
+    Just : a -> Maybe a
+    Nothing : Maybe a
+in
+Maybe_match
+  {integer}
+  (Just {integer} 1)
+  {all dead. integer}
+  (\(a : integer) -> /\dead -> addInteger 2 a)

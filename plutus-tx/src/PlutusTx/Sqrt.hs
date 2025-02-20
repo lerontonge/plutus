@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleInstances     #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TemplateHaskell       #-}
+{-# LANGUAGE ViewPatterns          #-}
 {-# OPTIONS_GHC -fno-omit-interface-pragmas #-}
 {-# OPTIONS_GHC -fplugin-opt PlutusTx.Plugin:context-level=3 #-}
 {-# OPTIONS_GHC -fno-ignore-interface-pragmas #-}
@@ -32,7 +33,6 @@ data Sqrt
   | Approximately Integer
   deriving stock (Haskell.Show, Haskell.Eq)
 
-{-# INLINABLE rsqrt #-}
 -- | Calculates the sqrt of a ratio of integers. As x / 0 is undefined,
 -- calling this function with `d=0` results in an error.
 rsqrt :: Rational -> Sqrt
@@ -56,11 +56,12 @@ rsqrt r
               in
                 if m * m * d <= n then go m u
                                   else go l m
+{-# INLINABLE rsqrt #-}
 
-{-# INLINABLE isqrt #-}
 -- | Calculates the integer-component of the sqrt of 'n'.
 isqrt :: Integer -> Sqrt
 isqrt n = rsqrt (unsafeRatio n 1)
+{-# INLINABLE isqrt #-}
 
 makeLift ''Sqrt
 makeIsDataIndexed ''Sqrt [ ('Imaginary,     0)

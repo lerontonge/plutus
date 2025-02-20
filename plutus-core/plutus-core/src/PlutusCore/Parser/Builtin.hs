@@ -3,14 +3,14 @@
 
 module PlutusCore.Parser.Builtin where
 
-import PlutusPrelude (Word8, reoption)
+import PlutusPrelude (Word8, reoption, void)
 
 import PlutusCore.Crypto.BLS12_381.G1 qualified as BLS12_381.G1
 import PlutusCore.Crypto.BLS12_381.G2 qualified as BLS12_381.G2
 import PlutusCore.Data
 import PlutusCore.Default
 import PlutusCore.Error (ParserError (UnknownBuiltinFunction))
-import PlutusCore.Name
+import PlutusCore.Name.Unique
 import PlutusCore.Parser.ParserCommon
 import PlutusCore.Parser.Type (defaultUni)
 import PlutusCore.Pretty (display)
@@ -20,6 +20,8 @@ import Data.ByteString (ByteString, pack)
 import Data.Map.Strict qualified as Map
 import Data.Text qualified as T
 import Data.Text.Internal.Read (hexDigitToInt)
+import Data.Vector.Strict (Vector)
+import Data.Vector.Strict qualified as Vector
 import Text.Megaparsec (customFailure, getSourcePos, takeWhileP)
 import Text.Megaparsec.Char (char, hexDigitChar, string)
 import Text.Megaparsec.Char.Lexer qualified as Lex
@@ -53,13 +55,19 @@ hexByte = do
 conBS :: Parser ByteString
 conBS = lexeme . fmap pack $ char '#' *> many hexByte
 
--- | Parser for string constants. They are wrapped in double quotes.
+{- | Parser for string constants (wrapped in double quotes).  Note that
+ Data.Text.pack "performs replacement on invalid scalar values", which means
+ that Unicode surrogate code points (corresponding to integers in the range
+ 0xD800-0xDFFF) are converted to the Unicode replacement character U+FFFD
+ (decimal 65533).  Thus `(con string "X\xD800Z")` parses to a `Text` object
+ whose second character is U+FFFD.
+-}
 conText :: Parser T.Text
 conText = lexeme . fmap T.pack $ char '\"' *> manyTill Lex.charLiteral (char '\"')
 
 -- | Parser for unit.
 conUnit :: Parser ()
-conUnit = () <$ (symbol "(" *> symbol ")")
+conUnit = void (symbol "(" *> symbol ")")
 
 -- | Parser for bool.
 conBool :: Parser Bool
@@ -72,7 +80,11 @@ conBool =
 -- | Parser for lists.
 conList :: DefaultUni (Esc a) -> Parser [a]
 conList uniA = trailingWhitespace . inBrackets $
-    constantOf ExpectParensNo uniA `sepBy` symbol ","
+  constantOf ExpectParensNo uniA `sepBy` symbol ","
+
+-- | Parser for arrays.
+conArray :: DefaultUni (Esc a) -> Parser (Vector a)
+conArray uniA = Vector.fromList <$> conList uniA
 
 -- | Parser for pairs.
 conPair :: DefaultUni (Esc a) -> DefaultUni (Esc b) -> Parser (a, b)
@@ -117,13 +129,15 @@ conBLS12_381_G2_Element = do
 
 -- | Parser for constants of the given type.
 constantOf :: ExpectParens -> DefaultUni (Esc a) -> Parser a
-constantOf expectParens uni = case uni of
+constantOf expectParens uni =
+  case uni of
     DefaultUniInteger                                                 -> conInteger
     DefaultUniByteString                                              -> conBS
     DefaultUniString                                                  -> conText
     DefaultUniUnit                                                    -> conUnit
     DefaultUniBool                                                    -> conBool
     DefaultUniProtoList `DefaultUniApply` uniA                        -> conList uniA
+    DefaultUniProtoArray `DefaultUniApply` uniA                       -> conArray uniA
     DefaultUniProtoPair `DefaultUniApply` uniA `DefaultUniApply` uniB -> conPair uniA uniB
     f `DefaultUniApply` _ `DefaultUniApply` _ `DefaultUniApply` _     -> noMoreTypeFunctions f
     DefaultUniData                                                    -> conData expectParens
@@ -142,3 +156,7 @@ constant = do
   Refl <- reoption $ checkStar uni
   -- Parse the constant of the type represented by the type tag.
   someValueOf uni <$> constantOf ExpectParensYes uni
+
+data ExpectParens
+  = ExpectParensYes
+  | ExpectParensNo

@@ -1,0 +1,5 @@
+let
+  !value1 : integer -> integer = \(x : integer) -> x
+  !value2 : integer -> integer = \(y : integer) -> value1 y
+in
+3

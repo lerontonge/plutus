@@ -1,0 +1,5 @@
+letrec
+  !value : integer -> integer
+    = \(x : integer) -> let !nonvalue : integer = value 3 in x
+in
+3

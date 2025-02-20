@@ -1,5 +1,5 @@
 ---
-title: (Declarative) Term Renaming and Substitution 
+title: (Declarative) Term Renaming and Substitution
 layout: page
 ---
 
@@ -10,17 +10,19 @@ module Declarative.RenamingSubstitution where
 ## Imports
 
 ```
+open import Data.Fin using (Fin)
 open import Function using (_∘_)
-open import Relation.Binary.PropositionalEquality using (refl;sym;trans)
-open import Data.List using (map)
+open import Relation.Binary.PropositionalEquality using (_≡_;refl;sym;trans;subst;cong)
+open import Data.Vec using (Vec;[];_∷_;lookup)
 
 open import Utils using (Kind;*;K)
+open import Utils.List using (List;IList;[];_∷_)
 open import Type using (Ctx⋆;_⊢⋆_;Φ;Ψ;A;B)
 open _⊢⋆_
 import Type.RenamingSubstitution as ⋆
 open import Type.Equality using (ren≡β;sub≡β;≡2β;_≡β_)
 open _≡β_
-open import Declarative using (Ctx;Γ;Δ;_∋_;conv∋;_⊢_;conv⊢;piBody;btype-ren;btype-sub;muPat;muArg;typeOf;typeOf∋)
+open import Declarative as Dec using (Ctx;Γ;Δ;_∋_;conv∋;_⊢_;conv⊢;piBody;btype-ren;btype-sub;muPat;muArg;typeOf;typeOf∋)
 open Ctx
 open _∋_
 open _⊢_
@@ -48,7 +50,7 @@ ext : (ρ⋆ : ⋆.Ren Φ Ψ)
     → ∀{B}
       -------------------------------
     → Ren (Γ , B) (Δ , ⋆.ren ρ⋆ B) ρ⋆
-ext _ ρ Z     = Z 
+ext _ ρ Z     = Z
 ext _ ρ (S x) = S (ρ x)
 ```
 
@@ -76,9 +78,34 @@ ren : (ρ⋆ : ⋆.Ren Φ Ψ)
     → Ren Γ Δ ρ⋆
       -------------------------------
     → (∀{A} → Γ ⊢ A → Δ ⊢ ⋆.ren ρ⋆ A)
+
+ren-ConstrArgs : ∀ {Φ} {Ψ} {Γ : Ctx Φ} {Δ : Ctx Ψ} (ρ⋆ : ⋆.Ren Φ Ψ)
+                   (ρ : Ren Γ Δ ρ⋆)
+                   {Ts : List (Φ ⊢⋆ *)}
+                   (cs : Dec.ConstrArgs Γ Ts) →
+                 Dec.ConstrArgs Δ (⋆.ren-List ρ⋆ Ts)
+ren-ConstrArgs ρ⋆ ρ [] = []
+ren-ConstrArgs ρ⋆ ρ (c ∷ cs) = (ren ρ⋆ ρ c) ∷ (ren-ConstrArgs ρ⋆ ρ cs)
+
+lem-ren-mkCaseType : ∀ {Φ} {Ψ} {Γ : Ctx Φ} {Δ : Ctx Ψ}
+                           (ρ⋆ : ⋆.Ren Φ Ψ) (ρ : Ren Γ Δ ρ⋆)
+                           {A : Φ ⊢⋆ *}
+                           (As : List (Φ ⊢⋆ *))
+          → ⋆.ren ρ⋆ (Dec.mkCaseType A As) ≡ Dec.mkCaseType (⋆.ren ρ⋆ A) (⋆.ren-List ρ⋆ As)
+lem-ren-mkCaseType ρ⋆ ρ [] = refl
+lem-ren-mkCaseType ρ⋆ ρ (A ∷ As) = cong (⋆.ren _ _ ⇒_) (lem-ren-mkCaseType ρ⋆ ρ As)
+
+ren-Cases : ∀ {Φ} {Ψ} {Γ : Ctx Φ} {Δ : Ctx Ψ} (ρ⋆ : ⋆.Ren Φ Ψ)
+              (ρ : Ren Γ Δ ρ⋆) {A : Φ ⊢⋆ *} {n} {Tss : Vec (List (Φ ⊢⋆ *)) n}
+              (cases : Dec.Cases Γ A Tss) →
+              Dec.Cases Δ (⋆.ren ρ⋆ A) (⋆.ren-VecList ρ⋆ Tss)
+ren-Cases ρ⋆ ρ Dec.[] = Dec.[]
+ren-Cases ρ⋆ ρ (Dec._∷_ {Ts = As} c cs) = subst (_ ⊢_) (lem-ren-mkCaseType  ρ⋆ ρ As) (ren ρ⋆ ρ c)
+                                        Dec.∷ (ren-Cases ρ⋆ ρ cs)
+
 ren _ ρ (` x) = ` (ρ x)
 ren _ ρ (ƛ L) = ƛ (ren _ (ext _ ρ) L)
-ren _ ρ (L · M) = ren _ ρ L · ren _ ρ M 
+ren _ ρ (L · M) = ren _ ρ L · ren _ ρ M
 ren _ ρ (Λ L) = Λ (ren _ (ext⋆ _ ρ) L)
 ren ρ⋆ ρ (L ·⋆ A) =
   conv⊢ refl (⋆.ren-Π A (piBody L) ρ⋆) (ren _ ρ L ·⋆ ⋆.ren ρ⋆ A)
@@ -88,6 +115,8 @@ ren _ ρ (conv p L) = conv (ren≡β _ p) (ren _ ρ L)
 ren ρ⋆ ρ (con {A} cn p) = con {A = A} cn (trans≡β (ren≡β ρ⋆ p) (≡2β (sym (⋆.sub∅-ren A ρ⋆))))
 ren ρ⋆ _ (builtin b) = conv⊢ refl (btype-ren b ρ⋆) (builtin b)
 ren _ _ (error A) = error (⋆.ren _ A)
+ren ρ⋆ ρ (constr e Tss refl cs) = constr e (⋆.ren-VecList ρ⋆ Tss) (sym (⋆.lookup-ren-VecList ρ⋆ e Tss)) (ren-ConstrArgs ρ⋆ ρ cs)
+ren ρ⋆ ρ (case L cases) = case (ren ρ⋆ ρ L) (ren-Cases ρ⋆ ρ cases)
 ```
 
 Weakening a term by an additional type variable
@@ -140,7 +169,7 @@ exts⋆ : (σ⋆ : ⋆.Sub Φ Ψ)
       → Sub Γ Δ σ⋆
       → ∀{K}
         ---------------------------------
-      → Sub (Γ ,⋆ K) (Δ ,⋆ K) (⋆.exts σ⋆) 
+      → Sub (Γ ,⋆ K) (Δ ,⋆ K) (⋆.exts σ⋆)
 exts⋆ _ σ (T {A = A} x) = conv⊢
   refl
   (trans (sym (⋆.ren-sub A)) (⋆.sub-ren A))
@@ -154,6 +183,31 @@ sub : (σ⋆ : ⋆.Sub Φ Ψ)
     → Sub Γ Δ σ⋆
       -----------------------------
     → ∀{A} → Γ ⊢ A → Δ ⊢ ⋆.sub σ⋆ A
+
+sub-ConstrArgs : ∀ {Φ} {Ψ} {Γ : Ctx Φ} {Δ : Ctx Ψ} (σ⋆ : ⋆.Sub Φ Ψ)
+                   (σ : Sub Γ Δ σ⋆)
+                   {Ts : List (Φ ⊢⋆ *)}
+                   (cs : Dec.ConstrArgs Γ Ts) →
+                 Dec.ConstrArgs Δ (⋆.sub-List σ⋆ Ts)
+sub-ConstrArgs σ⋆ σ [] = []
+sub-ConstrArgs σ⋆ σ (c ∷ cs) = (sub σ⋆ σ c) ∷ (sub-ConstrArgs σ⋆ σ cs)
+
+lem-sub-mkCaseType : ∀ {Φ} {Ψ} {Γ : Ctx Φ} {Δ : Ctx Ψ}
+                              (σ⋆ : ⋆.Sub Φ Ψ) (σ : Sub Γ Δ σ⋆) {A : Φ ⊢⋆ *}
+                              (As : List (Φ ⊢⋆ *))
+      → ⋆.sub σ⋆ (Dec.mkCaseType A As) ≡ Dec.mkCaseType (⋆.sub σ⋆ A) (⋆.sub-List σ⋆ As)
+lem-sub-mkCaseType σ⋆ σ [] = refl
+lem-sub-mkCaseType σ⋆ σ (A ∷ As) = cong (⋆.sub σ⋆ A ⇒_) (lem-sub-mkCaseType σ⋆ σ As)
+
+sub-Cases : ∀ {Φ} {Ψ} {Γ : Ctx Φ} {Δ : Ctx Ψ} (σ⋆ : ⋆.Sub Φ Ψ)
+              (σ : Sub Γ Δ σ⋆) {A : Φ ⊢⋆ *} {n} {Tss : Vec (List (Φ ⊢⋆ *)) n}
+              (cases : Dec.Cases Γ A Tss) →
+            Dec.Cases Δ (⋆.sub σ⋆ A) (⋆.sub-VecList σ⋆ Tss)
+sub-Cases σ⋆ σ Dec.[] = Dec.[]
+sub-Cases σ⋆ σ (Dec._∷_ {Ts = As} c cases) = subst (_ ⊢_) (lem-sub-mkCaseType σ⋆ σ As) (sub σ⋆ σ c)
+                                 Dec.∷ (sub-Cases σ⋆ σ cases)
+
+
 sub _  σ (` k)        = σ k
 sub _  σ (ƛ L)        = ƛ (sub _ (exts _ σ) L)
 sub _  σ (L · M)      = sub _ σ L · sub _ σ M
@@ -167,6 +221,8 @@ sub _  σ (conv p L)   = conv (sub≡β _ p) (sub _ σ L)
 sub σ⋆ _ (con {A} cn p) = con {A = A} cn (trans≡β (sub≡β σ⋆ p) (≡2β (sym (⋆.sub∅-sub A σ⋆))))
 sub _  _ (builtin b)  = conv⊢ refl (btype-sub b _) (builtin b)
 sub _  _ (error A)    = error (⋆.sub _ A)
+sub σ⋆ σ (constr e Tss refl cs) = constr e (⋆.sub-VecList σ⋆ Tss) (sym (⋆.lookup-sub-VecList σ⋆ e Tss)) (sub-ConstrArgs σ⋆ σ cs)
+sub σ⋆ σ (case L cases) = case (sub σ⋆ σ L) (sub-Cases σ⋆ σ  cases)
 ```
 
 Extending a substitution by a term. Substitutions are implemented as

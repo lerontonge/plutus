@@ -3,24 +3,21 @@
    restrictions.
 -}
 
-{-# LANGUAGE TemplateHaskell #-}
-
-module TH (genTest)
-where
+module TH (genTest) where
 
 import Data.Char (toUpper)
 import Language.Haskell.TH
 
 toUpper1 :: String -> String
 toUpper1 []     = error "empty string in toUpper1"
-toUpper1 (c:cs) = (toUpper c):cs
+toUpper1 (c:cs) = toUpper c : cs
 
 mkIterApp :: Exp -> [Exp] -> Exp
 mkIterApp = foldl AppE
 
 {- | The genTest function generates calls to the appropriate "makeProp" functions: eg
 
-      $(genTest 3 "xyz") -> makeProp3 "xyz" xyz paramXyz models
+      $(genTest 3 "xyz") -> makeProp3 "xyz" paramXyz modelsH modelsR
 
    Appropriate variables/functions must be in scope when 'genTest' is called,
    but this should always be the case if it's used inside the 'tests' list in
@@ -32,9 +29,8 @@ genTest :: Int -> String -> Q Exp
 genTest n s =
     let makePropN = VarE $ mkName ("makeProp" ++ show n)
         testname  = LitE $ StringL s
-        fun       = VarE $ mkName s
         params    = VarE $ mkName ("param" ++ toUpper1 s)
-        models    = VarE $ mkName "models"
-    in pure $ mkIterApp makePropN [testname, fun, params, models]
-
+        modelsH   = VarE $ mkName "modelsH"
+        modelsR   = VarE $ mkName "modelsR"
+    in pure $ mkIterApp makePropN [testname, params, modelsH, modelsR]
 

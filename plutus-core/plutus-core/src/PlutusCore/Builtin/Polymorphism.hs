@@ -8,6 +8,7 @@
 {-# LANGUAGE TypeFamilies             #-}
 {-# LANGUAGE TypeOperators            #-}
 {-# LANGUAGE UndecidableInstances     #-}
+{-# LANGUAGE UndecidableSuperClasses  #-}
 
 module PlutusCore.Builtin.Polymorphism
     ( Opaque (..)
@@ -17,6 +18,7 @@ module PlutusCore.Builtin.Polymorphism
     , TyAppRep
     , TyForallRep
     , BuiltinHead
+    , LastArg
     , ElaborateBuiltin
     , AllElaboratedArgs
     , AllBuiltinArgs
@@ -164,8 +166,11 @@ deriving newtype instance (Everywhere uni ExMemoryUsage, Closed uni)
 type instance UniOf (SomeConstant uni rep) = uni
 
 instance HasConstant (SomeConstant uni rep) where
-    asConstant   = coerceArg pure
+    asConstant = coerceArg pure
+    {-# INLINE asConstant #-}
+
     fromConstant = coerce
+    {-# INLINE fromConstant #-}
 
 -- | Representation of a type variable: its name and unique and an implicit kind.
 data TyNameRep (kind :: GHC.Type) = TyNameRep Symbol Nat
@@ -183,6 +188,15 @@ data family TyForallRep (name :: TyNameRep kind) (a :: GHC.Type) :: GHC.Type
 -- or type family.
 type BuiltinHead :: forall a. a -> a
 data family BuiltinHead x
+
+-- | @LastArg x y@ is the same thing as @y@ in the signature of the denotation of a built-in
+-- functions and this type is only used for referencing @x@ before @y@, so that the elaboration
+-- machinery generates @x@ before @y@ in the @all@ part of the Plutus signature of the builtin.
+-- This is a very hacky and indirect way of specifying the ordering of type variables in a Plutus
+-- signature, in future we'll do it explicitly by introducing a 'Forall' binder for use in type
+-- signatures of denotations of builtins.
+type LastArg :: GHC.Type -> GHC.Type -> GHC.Type
+data family LastArg x y
 
 -- | Take an iterated application of a built-in type and elaborate every function application
 -- inside of it to 'TyAppRep' and annotate the head with 'BuiltinHead'.
@@ -211,7 +225,8 @@ type family AllElaboratedArgs constr x where
 -- built-in type.
 type AllBuiltinArgs
         :: forall a. (GHC.Type -> GHC.Type) -> (GHC.Type -> GHC.Constraint) -> a -> GHC.Constraint
-type AllBuiltinArgs uni constr x = AllElaboratedArgs constr (ElaborateBuiltin uni x)
+class    AllElaboratedArgs constr (ElaborateBuiltin uni x) => AllBuiltinArgs uni constr x
+instance AllElaboratedArgs constr (ElaborateBuiltin uni x) => AllBuiltinArgs uni constr x
 
 -- Custom type errors to guide the programmer adding a new built-in function.
 

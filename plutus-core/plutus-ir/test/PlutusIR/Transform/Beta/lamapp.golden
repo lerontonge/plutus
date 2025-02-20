@@ -1,0 +1,4 @@
+let
+  !y : integer = 1
+in
+y

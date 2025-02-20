@@ -1,0 +1,6 @@
+letrec
+  !r : integer = i
+  !j : integer = r
+  !i : integer = j
+in
+3

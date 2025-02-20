@@ -1,4 +1,361 @@
 
+<a id='changelog-1.40.0.0'></a>
+# 1.40.0.0 — 2025-01-16
+
+## Changed
+
+- In #5265 made `itraverseCounter_` faster increasing overall performance of the evaluator by 2.5%.
+
+- In #6737 made the the CEK creation operation marginally faster by resorting to bit manipulation
+
+## Fixed
+
+- Fix the Steppable CEK machine to correctly "pause/step" in case of SOPs.
+
+<a id='changelog-1.39.0.0'></a>
+# 1.39.0.0 — 2024-12-20
+
+## Changed
+
+- Relaxed upper bound for the `cardano-crypto-class` dependency (< 2.3)
+
+<a id='changelog-1.38.0.0'></a>
+# 1.38.0.0 — 2024-12-09
+
+## Changed
+
+- In #6702 made variable lookup faster increasing overall performance of the evaluator by 1%.
+
+- In #6705 made the local `spend` function faster increasing overall performance of the evaluator by 1.8%.
+
+<a id='changelog-1.37.0.0'></a>
+# 1.37.0.0 — 2024-11-25
+
+## Added
+
+- In #6530 added support for pattern matching builtins: `CaseList` and `CaseData`.
+
+## Changed
+
+- In #6663 made variable lookup significantly faster increasing overall performance of the evaluator by 10+%.
+
+<a id='changelog-1.36.0.0'></a>
+# 1.36.0.0 — 2024-10-09
+
+## Changed
+
+- The signature of the `writeBits` PLC builtin has been changed from
+```
+[bytestring, list integer, list boolean] -> bytestring
+```
+
+   to
+
+```
+[bytestring, list integer, boolean] -> bytestring
+```
+
+   Instead of a list of boolean values to write to bit positions specified in the
+   second argument it now takes a single boolean value which is used to update the
+   bits at all of the given positions.  If it's necessary to set some bits and
+   clear others then the function should be called twice, once with `True` as the
+   third argument and once with `False`.
+
+<a id='changelog-1.35.0.0'></a>
+# 1.35.0.0 — 2024-10-04
+
+## Removed
+
+- Removed `PlutusIR.Core.Instance.Pretty.Readable.PrettyPir`.
+  Use `PlutusCore.Pretty.Readable.PrettyReadable` instead.
+
+## Changed
+
+- Renamed `PlutusIR.Core.Instance.Pretty.Readable.prettyPirReadable`
+  to `PlutusCore.Pretty.Readable.prettyReadable`.
+- Renamed `PlutusIR.Core.Instance.Pretty.Readable.prettyPirReadableSimple`
+  to `PlutusCore.Pretty.Readable.prettyReadableSimple`.
+
+<a id='changelog-1.34.1.0'></a>
+# 1.34.1.0 — 2024-09-14
+
+## Removed
+
+- Removed the `uplc`, `plc` and `pir` executables from this package. They are now in the new `plutus-executables` package.
+
+## Fixed
+
+- A bug in the`findFirstSetBit` builtin has been fixed.
+
+<a id='changelog-1.34.0.0'></a>
+# 1.34.0.0 — 2024-09-09
+
+## Changed
+
+- Swapped around the type arguments of `EvaluationError` and `EvaluationException`.
+
+<a id='changelog-1.33.0.0'></a>
+# 1.33.0.0 — 2024-08-22
+
+## Added
+
+- An initial DRAFT implementation of 'modularExponentiation' builtin
+
+- Builtin function `ripemd_160` implementing RIPEMD-160 hashing.
+
+<a id='changelog-1.32.0.0'></a>
+# 1.32.0.0 — 2024-08-06
+
+## Added
+
+- Added costing for the new bitwise builtins (see CIP-0058), which will probably become available at the Plomin HF.
+
+- Support for `Natural` numbers in the default universe, backed by `Integer`.
+
+## Changed
+
+- Updated version boundaries for the `nothunks` dependency (^>=0.2)
+
+<a id='changelog-1.31.0.0'></a>
+# 1.31.0.0 — 2024-07-17
+
+## Removed
+
+- Removed `Emitter` and `MonadEmitter` in #6224.
+
+- In #6248 the case-of-case optimization was removed from the compiler due to it causing OOMs.
+
+## Changed
+
+-  All names are printed with their unique suffixes by default.
+
+- Forbade using `EvaluationResult` in the builtins code in favor of `BuiltinResult` in #5926, so that builtins throw errors with more helpful messages.
+
+- Changed the type of `emit` to `Text -> BuiltinResult ()` in #6224.
+
+## Fixed
+
+- In #6272 fixed a bug in `isNormalType`.
+
+<a id='changelog-1.30.0.0'></a>
+# 1.30.0.0 — 2024-06-17
+
+## Added
+
+- Logical operations as per [CIP-122](https://github.com/mlabs-haskell/CIPs/blob/koz/logic-ops/CIP-0122/CIP-0122.md).
+
+- Implementation and tests for primitive operations in [this
+  CIP](https://github.com/mlabs-haskell/CIPs/blob/koz/bitwise/CIP-XXXX/CIP-XXXX.md)
+
+## Changed
+
+- References to CIP-87 have been corrected to refer to CIP-121.
+- Rename `ReplicateByteString` to `ReplicateByte` (and similarly for denotation)
+- Renamed decodeViaFlat to decodeViaFlatWith
+- Renamed AsSerialize to FlatViaSerialise
+
+<a id='changelog-1.29.0.0'></a>
+# 1.29.0.0 — 2024-06-04
+
+## Removed
+
+- `unsafeRunCekNoEmit` and all `unsafeEvaluate*` functions in #6043. To replace e.g. `unsafeEvaluateCek` you can use `evaluateCek` in combination with `unsafeToEvaluationResult`.
+
+- `UnknownBuiltin` and `UnknownBuiltinType` in #6064.
+
+## Added
+
+- Primitives `integerToByteString` and `byteStringToInteger` are added to PlutusV2,
+  enabled at protocol version 10.
+
+- A new cost model for PlutusV3.
+
+- Missing `KnownTypeAst`, `ReadKnownIn` and `MakeKnownIn` for integral types (`Int8`, `Word16` etc) in #6036
+
+## Changed
+
+- Renamed `unsafeExtractEvaluationResult` to `unsafeToEvaluationResult`.
+
+- We now have configurable cost models which allow different costs for different Plutus language versions and protocol versions.
+
+- Made unlifting errors a bit more flexible by allowing operational unlifting errors in #6036
+
+- CPU charges reduced for PlutusV1 and PlutusV2 scripts in the Conway era.
+
+<a id='changelog-1.28.0.0'></a>
+# 1.28.0.0 — 2024-05-15
+
+## Fixed
+
+- A "stricter" version of `Z`-combinator that allows certain PIR programs not to lose their traces
+and yields minor performance gains.
+
+<a id='changelog-1.27.0.0'></a>
+# 1.27.0.0 — 2024-04-30
+
+## Removed
+
+- Debugger executable is removed and integrated inside plutus executable.
+
+## Added
+
+- An experimental "plutus" tool that unifies `pir`, `plc`, `uplc`, and `debugger` executables into one.
+- `Codec.CBOR.Extras` module is migrated here from `plutus-ledger-api.
+
+## Fixed
+
+- Restrict `eraseTerm`/`eraseProgram` to only work with `TPLC Name` input.
+
+<a id='changelog-1.26.0.0'></a>
+# 1.26.0.0 — 2024-04-19
+
+## Changed
+
+- Improvements to costing infrastructure.
+
+- Use `Vector` in the datastructure for `case` terms during evaluation. This speeds
+  up evaluation fairly significantly.
+
+- The `flat` encoding of the `Data` type has been modified slightly to make sure that
+  the result is always in the canonical format described in the Plutus Core specification.
+
+<a id='changelog-1.25.0.0'></a>
+# 1.25.0.0 — 2024-04-03
+
+## Changed
+
+- Partially applied builtins are estimated to be pure and work-free to better inform other optimizations, e.g. common subexpression elimination.
+
+<a id='changelog-1.22.0.0'></a>
+# 1.22.0.0 — 2024-02-21
+
+## Added
+
+- Cost modelling code updated for `ByteStringToInteger` and `IntegerToByteString`.
+- Preliminary budgeting for `ByteStringToInteger` and `IntegerToByteString`.
+
+<a id='changelog-1.21.0.0'></a>
+# 1.21.0.0 — 2024-01-25
+
+## Changed
+
+- #5728 added `BuiltinResult` and leveraged in places where we used to use `Emitter (EvaluationResult Smth)`.
+
+<a id='changelog-1.20.0.0'></a>
+# 1.20.0.0 — 2024-01-15
+
+## Added
+
+- Implementations for the primitive operations described in
+  [CIP-0087](https://github.com/mlabs-haskell/CIPs/blob/koz/to-from-bytestring/CIP-0087/CIP-0087.md)
+
+<a id='changelog-1.19.0.0'></a>
+# 1.19.0.0 — 2023-12-23
+
+## Added
+
+- Common subexpression elimination for Untyped Plutus Core.
+
+## Changed
+
+- The methoods in the `Flat` instances for `PlutusCore.Crypto.BLS12_381.G1.Element` and `PlutusCore.Crypto.BLS12_381.G2.Element` now cause failures: if a user wishes to use a literal constant in a serialised script then they should use the relevant `uncompress` function on a bytestring.  For convenience in experimentation and testing, literal constants are still allowed in textual Plutus Core programs, but any attempt to convert such a program to `flat` format will fail.
+
+- The `zero` and `generator` constants (for use in `plutus-tx`) have been removed from `PlutusCore.Crypto.BLS12_381.G1.Element` and `PlutusCore.Crypto.BLS12_381.G2.Element` and replaced with bytestrings called `compressed_zero` and `compressed_generator`; the original elements can be recovered by applying the appropriate `uncompress` functions to these.
+-->
+
+## Fixed
+
+- The `EvaluateBuiltins` pass will no longer produce constants that can't be serialized.
+
+- Fixed a bug in the PIR inliner that causes it to change the order of effects
+  in the presence of multi-lets.
+
+<a id='changelog-1.17.0.0'></a>
+# 1.17.0.0 — 2023-11-22
+
+## Added
+
+- `Hashable` instances for `Data`, UPLC `Term` and related types.
+
+<a id='changelog-1.16.0.0'></a>
+# 1.16.0.0 — 2023-11-10
+
+## Removed
+
+- A `GCompare` instance for `DefaultUni` in #5609.
+
+## Added
+
+- A new pass in the simplifier that rewrites PIR terms given user-provided rules.
+  It behaves similar to GHC's RULES, but for the PIR language.
+  By default, a pre-defined set of rules are applied when the PIR simplifier is enabled.
+
+- A PIR rewrite rule for optimizing ""(unconstr . constrdata)"
+
+<a id='changelog-1.15.0'></a>
+# 1.15.0 — 2023-10-16
+
+## Added
+
+- The Plutus IR optimizer now performs case-of-case.
+
+- Typechecking property tests for all PIR compiler passes.
+
+- The debugger will now track and show traces, live as they are emitted by the CEK machine
+
+## Changed
+
+- Instead of a single `--hs-file`, the debugger now accepts an `--hs-dir DIR` option
+to look for (multiple) source PlutusTx modules
+
+<a id='changelog-1.14.0.0'></a>
+# 1.14.0.0 — 2023-09-28
+
+## Added
+
+- Optimizer now considers constructor applications to be pure
+
+## Changed
+
+- The ThunkRecursions transformation preserves now the effect order & strictness
+
+<a id='changelog-1.13.0.0'></a>
+# 1.13.0.0 — 2023-09-15
+
+## Added
+
+- A `-B`/`--builtin-semantics-variant` option for the `plc` and `uplc` commands to allow the user to select which variant of the builtin semantics to use.
+
+## Changed
+
+- CekMachineCosts changed to use the "higher-kinded data" pattern, like BuiltinCostModel
+
+## Fixed
+
+- The PIR callsite inliner no longer requires that the function is fully applied for inlining.
+
+- Fixed bugs in the inliner relating to inlining terms that are
+  immediately evaluated.
+
+<a id='changelog-1.11.0.0'></a>
+# 1.11.0.0 — 2023-08-24
+
+## Added
+
+- Optimization pass to strictify bindings
+
+<a id='changelog-1.10.0.0'></a>
+# 1.10.0.0 — 2023-08-02
+
+## Added
+
+- `keccak_256` builtin
+- `blake2b_224` builtin
+
+## Changed
+
+- Separated the single `Includes` constraint into two constraints, `HasTypeLevel` and `HasTermLevel` (which together form `HasTypeAndTermLevel`) in #5434.
+
 <a id='changelog-1.9.0.0'></a>
 # 1.9.0.0 — 2023-07-21
 
@@ -56,7 +413,7 @@ instead of the previous indirection via Natural.
   `PlutusCore.MkPlc.mkIterTyApp` to require an annotation to be provided
   for each argument.
 
-- Updated the parser and the pretty-printers to the new syntax of `Data` in [#5391](https://github.com/input-output-hk/plutus/pull/5391) according to [this](https://github.com/input-output-hk/plutus/issues/4751#issuecomment-1538377273), for example:
+- Updated the parser and the pretty-printers to the new syntax of `Data` in [#5391](https://github.com/IntersectMBO/plutus/pull/5391) according to [this](https://github.com/IntersectMBO/plutus/issues/4751#issuecomment-1538377273), for example:
 
 ```
 Constr 1
@@ -208,7 +565,7 @@ Constr 1
 
 - `Version` no longer has an annotation, as this was entirely unused.
 
-- Made `geq` faster in certain cases, -1% of total validation time. [#5061](https://github.com/input-output-hk/plutus/pull/5061)
+- Made `geq` faster in certain cases, -1% of total validation time. [#5061](https://github.com/IntersectMBO/plutus/pull/5061)
 
 - Made the Haskell-Tx file input to the debugger optional.
 

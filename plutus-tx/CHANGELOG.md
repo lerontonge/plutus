@@ -1,4 +1,217 @@
 
+<a id='changelog-1.37.0.0'></a>
+# 1.37.0.0 — 2024-11-25
+
+## Added
+
+- Added a data-backed list type in `PlutusTx.Data.List`.
+
+<a id='changelog-1.36.0.0'></a>
+# 1.36.0.0 — 2024-10-09
+
+## Changed
+
+- The type of `writeBits` built-in PlutusTx/Plinth function has been changed from
+
+```
+BuiltinByteString ->  [Integer] ->  [Bool] ->  BuiltinByteString
+```
+
+   to
+
+```
+BuiltinByteString ->  [Integer] ->  Bool ->  BuiltinByteString
+```
+
+   Instead of a list of boolean values to write to bit positions specified in the
+   second argument it now takes a single boolean value which is used to update the
+   bits at all of the given positions.  If it's necessary to set some bits and
+   clear others then the function should be called twice, once with `True` as the
+   third argument and once with `False`.
+
+<a id='changelog-1.34.0.0'></a>
+# 1.34.0.0 — 2024-09-09
+
+## Changed
+
+- CIP-57 (Blueprints) related changes:
+  - `HasSchema` typeclass renamed to `HasBlueprintSchema`
+  - `AsDefinitionId` typeclass renamed to `HasBlueprintDefinition`
+  - `Unroll` type-family made into an associated type of `HasBlueprintSchema` in order to make it open for extension.
+  - `HasBlueprintSchema` and `HasBlueprintDefinition` instances for data types.
+
+<a id='changelog-1.33.0.0'></a>
+# 1.33.0.0 — 2024-08-22
+
+## Added
+
+- Enabled the draft modularExponentation builtin.
+
+- Builtin function `ripemd_160` implementing RIPEMD-160 hashing.
+
+<a id='changelog-1.32.0.0'></a>
+# 1.32.0.0 — 2024-08-06
+
+## Changed
+
+- In #6347 made `[] :: [Integer]`, `[] :: [Bool]`, `[] :: [Data]`, and `[(Data, Data)]` compile directly to the respective empty list via the `MkNil` type class without usage of built-in functions or `defineBuiltinTerm`.
+
+<a id='changelog-1.30.0.0'></a>
+# 1.30.0.0 — 2024-06-17
+
+## Removed
+
+- Removed incorrect Ord and Eq instances from AssocMap and Data.AssocMap.
+
+## Added
+
+- Builtins corresponding to the logical operations from [CIP-122](https://github.com/mlabs-haskell/CIPs/blob/koz/logic-ops/CIP-0122/CIP-0122.md).
+
+- Builtin wrappers for operations from [this
+  CIP](https://github.com/mlabs-haskell/CIPs/blob/koz/bitwise/CIP-XXXX/CIP-XXXX.md).
+
+- Haskell `Eq` and `Ord` instances for `AssocMap` based on `Data.Map.Strict`.
+
+## Changed
+
+- References to CIP-0087 now correctly refer to CIP-121.
+
+- Rename `replicateByteString` to `replicateByte`
+
+<a id='changelog-1.29.0.0'></a>
+# 1.29.0.0 — 2024-06-04
+
+## Added
+
+- Added `Data.AssocList.Map` module which provides a map implementation based on `Data`.
+
+## Changed
+
+- Split `PlutusTx.Builtins.Class` into `PlutusTx.Builtins.HasBuiltin` and `PlutusTx.Builtins.HasOpaque` in #5971:
++ Split 'FromBuiltin' into 'HasFromBuiltin' and 'HasFromOpaque'
++ Split 'ToBuiltin' into 'HasToBuiltin' and 'HasToOpaque'
+
+- The PlutusTx `These` type had the Haskell implementations of `Show`, `Eq` and `Ord` instances instead of PlutusTx ones. This has been fixed.
+
+<a id='changelog-1.28.0.0'></a>
+# 1.28.0.0 — 2024-05-15
+
+## Changed
+
+- Renamed `PlutusTx.Builtins.matchList` to `matchList'`. The new `matchList` takes
+  an argument of type `() -> r` for the `nil` case, ensuring that the nil case
+  isn't evaluated if the list is non-empty.
+
+<a id='changelog-1.26.0.0'></a>
+# 1.26.0.0 — 2024-04-19
+
+## Added
+
+- CIP-0057 Blueprint generation is supported.
+
+- An error code "PT20" for the `recip` function in the `PlutusTx.Ratio` module.
+
+- `PlutusTx.List.indexBuiltinList`: index operator for builtin lists.
+
+<a id='changelog-1.24.0.0'></a>
+# 1.24.0.0 — 2024-03-26
+
+## Added
+
+- Documented functions which unsafely construct `PlutusTx.AssocMap.Map`s, or depend on the precondition that the input `Map`s do not contain duplicate entries.
+
+## Changed
+
+- Renamed `PlutusTx.AssocMap.Map.fromList` to `PlutusTx.AssocMap.Map.unsafeFromList`.
+- Renamed `PlutusTx.AssocMap.Map.fromListSafe` to `PlutusTx.AssocMap.Map.safeFromList`.
+
+<a id='changelog-1.22.0.0'></a>
+# 1.22.0.0 — 2024-02-21
+
+## Removed
+
+- `PlutusTx.Ratio.reduce` removed in favor of `PlutusTx.Ratio.unsafeRatio` as it
+was violating the "positive denominator" invariant.
+
+## Added
+
+- Builtins updated to include `ByteStringToInteger` and `IntegerToByteString`.
+
+<a id='changelog-1.20.0.0'></a>
+# 1.20.0.0 — 2024-01-15
+
+## Added
+
+- Entries in `PlutusTx.Builtins` for [CIP-0087
+  primitives](https://github.com/mlabs-haskell/CIPs/blob/koz/to-from-bytestring/CIP-0087/CIP-0087.md)
+- Entries in `PlutusTx.Builtins.Internal` for [CIP-0087
+  primitives](https://github.com/mlabs-haskell/CIPs/blob/koz/to-from-bytestring/CIP-0087/CIP-0087.md)
+
+## Fixed
+
+- The `blake2b_224` function in the plutus-tx plugin was erroneously
+  calling `blake2b_256` instead.  Now fixed.
+
+<a id='changelog-1.19.0.0'></a>
+# 1.19.0.0 — 2023-12-23
+
+## Changed
+
+- The group elements `bls12_381_G1_zero` and `bls12_381_G1_generator` have been replaced with bytestrings called `bls12_381_G1_compressed_zero` and `bls12_381_G1_compressed generator`, and similarly for `bls12_381_G2_zero` and `bls12_381_G2_generator`.  PlutusTx scripts should apply `bls12_381_G2_uncompress` or `bls12_381_G2_uncompress` to the compressed versions to recover the group elements.
+
+- Improved the performance of `PlutusTx.AssocMap.insert` and `PlutusTx.AssocMap.unionWith`.
+
+## Fixed
+
+- The "safe" version of `fromData` was using an unsafe `head` function, so would
+  crash on some malformed input instead of returning `Nothing`.
+
+<a id='changelog-1.18.0.0'></a>
+# 1.18.0.0 — 2023-12-06
+
+## Added
+
+- A more informative error message when the plugin encounters a literal range
+- PlutusTx.enumFromThenTO for ranges like [1,5..101]
+
+<a id='changelog-1.17.0.0'></a>
+# 1.17.0.0 — 2023-11-22
+
+## Changed
+
+- Generated instances for `IsData` now have more efficient codegen, but
+  require `ViewPatterns`.
+
+<a id='changelog-1.13.0.0'></a>
+# 1.13.0.0 — 2023-09-15
+
+## Added
+
+- `asData`, a TH function for creating datatype declarations
+  that are backed by `Data`, which can be much faster in some
+  circumstances.
+
+- Generic instances for Rational and BuiltinData.
+
+## Fixed
+
+- Fixed a strictness issue in generated `IsData` instaces when using `-O0` in Plutus Tx.
+
+<a id='changelog-1.12.0.0'></a>
+# 1.12.0.0 — 2023-09-01
+
+## Changed
+
+- The `Strict` extension is now on by default in all of Plutus Tx.
+
+<a id='changelog-1.10.0.0'></a>
+# 1.10.0.0 — 2023-08-02
+
+## Added
+
+- Haskell function for `keccak_256` builtin
+- Haskell function for `blake2b_224` builtin
+
 <a id='changelog-1.8.0.0'></a>
 # 1.8.0.0 — 2023-06-22
 

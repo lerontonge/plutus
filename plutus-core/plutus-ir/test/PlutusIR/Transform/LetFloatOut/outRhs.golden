@@ -1,0 +1,5 @@
+letrec
+  !x : integer = let !y : integer = z in y
+  ~z : integer = addInteger x 1
+in
+x
