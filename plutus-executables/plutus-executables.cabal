@@ -68,7 +68,7 @@ executable pir
   other-modules:  Paths_plutus_executables
   hs-source-dirs: executables
   build-depends:
-    , base                             >=4.9   && <5
+    , base                              >=4.9   && <5
     , bytestring
     , cassava
     , containers
@@ -76,9 +76,9 @@ executable pir
     , megaparsec
     , mtl
     , optparse-applicative
-    , plutus-core                      ^>=1.59
-    , plutus-core:plutus-core-execlib
+    , plutus-core                       ^>=1.59
     , plutus-core:plutus-ir
+    , plutus-ledger-api:plutus-execlib
     , text
 
 executable plc
@@ -87,13 +87,13 @@ executable plc
   other-modules:  Paths_plutus_executables
   hs-source-dirs: executables
   build-depends:
-    , base                             >=4.9   && <5
+    , base                              >=4.9   && <5
     , bytestring
     , mtl
     , optparse-applicative
-    , plutus-core                      ^>=1.59
+    , plutus-core                       ^>=1.59
     , plutus-core:flat
-    , plutus-core:plutus-core-execlib
+    , plutus-ledger-api:plutus-execlib
 
 executable uplc
   import:         lang, os-support, ghc-version-support
@@ -101,22 +101,88 @@ executable uplc
   other-modules:  Paths_plutus_executables
   hs-source-dirs: executables
   build-depends:
-    , base                             >=4.9   && <5
+    , base                              >=4.9   && <5
     , bytestring
     , criterion
     , deepseq
     , haskeline
     , mtl
     , optparse-applicative
-    , plutus-core                      ^>=1.59
+    , plutus-core                       ^>=1.59
     , plutus-core:flat
-    , plutus-core:plutus-core-execlib
-    , plutus-metatheory                ^>=1.59
+    , plutus-ledger-api:plutus-execlib
+    , plutus-metatheory                 ^>=1.59
     , prettyprinter
     , serialise
     , split
     , text
     , time
+
+executable plutus
+  import:             lang
+  main-is:            Main.hs
+  hs-source-dirs:     plutus
+
+  -- Hydra complains that this is not buildable on mingw32 because of brick.
+  -- Strange, because I thought vty added support for windows.
+  if os(windows)
+    buildable: False
+
+  other-modules:
+    AnyProgram.Apply
+    AnyProgram.Bench
+    AnyProgram.Compile
+    AnyProgram.Debug
+    AnyProgram.Example
+    AnyProgram.IO
+    AnyProgram.Parse
+    AnyProgram.Run
+    AnyProgram.With
+    Common
+    Debugger.TUI.Draw
+    Debugger.TUI.Event
+    Debugger.TUI.Main
+    Debugger.TUI.Types
+    GetOpt
+    Mode.Compile
+    Mode.HelpVersion
+    Mode.ListExamples
+    Mode.PrintBuiltins
+    Mode.PrintCostModel
+    Paths_plutus_executables
+    Types
+
+  build-depends:
+    , aeson-pretty
+    , base                   >=4.9   && <5
+    , brick
+    , bytestring
+    , containers
+    , exceptions
+    , filepath
+    , lens
+    , megaparsec
+    , microlens
+    , microlens-th           ^>=0.4
+    , mono-traversable
+    , mtl
+    , plutus-core            ^>=1.59
+    , plutus-core:flat
+    , plutus-core:plutus-ir
+    , prettyprinter
+    , primitive
+    , serialise
+    , singletons
+    , singletons-th
+    , text
+    , text-zipper
+    , vty                    ^>=6.5
+    , vty-crossplatform      ^>=0.4
+
+  ghc-options:        -O2 -threaded -rtsopts -with-rtsopts=-N
+  default-extensions:
+    GADTs
+    TypeApplications
 
 test-suite test-simple
   import:             lang, os-support, ghc-version-support
@@ -167,7 +233,7 @@ test-suite test-certifier
     , directory
     , filepath
     , plutus-core
-    , plutus-core:plutus-core-execlib
+    , plutus-ledger-api:plutus-execlib
     , plutus-metatheory
     , process
     , tasty

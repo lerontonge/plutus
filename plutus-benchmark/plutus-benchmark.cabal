@@ -601,11 +601,11 @@ library marlowe-internal
     , mtl
     , newtype-generics
     , plutus-benchmark-common
-    , plutus-core                      ^>=1.59
-    , plutus-core:plutus-core-execlib
-    , plutus-ledger-api                ^>=1.59
-    , plutus-tx                        ^>=1.59
-    , plutus-tx-plugin                 ^>=1.59
+    , plutus-core                       ^>=1.59
+    , plutus-ledger-api                 ^>=1.59
+    , plutus-ledger-api:plutus-execlib
+    , plutus-tx                         ^>=1.59
+    , plutus-tx-plugin                  ^>=1.59
     , serialise
 
 executable marlowe-validators
