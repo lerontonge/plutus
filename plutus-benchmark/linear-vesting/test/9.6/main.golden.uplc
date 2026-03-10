@@ -762,30 +762,40 @@
                              , False ])))
                   (fix1
                      (\findOutputByAddress addr outputs ->
-                        caseList'
-                          ((\x -> error)
-                             (force trace "Own output not found" (constr 0 [])))
-                          (\out outs ->
-                             case
-                               (equalsData
-                                  (force headList
-                                     (case (unConstrData out) [(\l r -> r)]))
-                                  addr)
-                               [(findOutputByAddress addr outs), out])
-                          outputs)))
+                        case
+                          (constr 0
+                             [ ((\x -> error)
+                                  (force trace
+                                     "Own output not found"
+                                     (constr 0 [])))
+                             , (\out outs ->
+                                  case
+                                    (equalsData
+                                       (force headList
+                                          (case
+                                             (unConstrData out)
+                                             [(\l r -> r)]))
+                                       addr)
+                                    [(findOutputByAddress addr outs), out])
+                             , outputs ])
+                          [caseList'])))
                (fix1
                   (\findInputByOutRef ref inputs ->
-                     caseList'
-                       ((\x -> error)
-                          (force trace "Own input not found" (constr 0 [])))
-                       (\txIn txIns ->
-                          case
-                            (equalsData
-                               (force headList
-                                  (case (unConstrData txIn) [(\l r -> r)]))
-                               ref)
-                            [(findInputByOutRef ref txIns), txIn])
-                       inputs)))
+                     case
+                       (constr 0
+                          [ ((\x -> error)
+                               (force trace
+                                  "Own input not found"
+                                  (constr 0 [])))
+                          , (\txIn txIns ->
+                               case
+                                 (equalsData
+                                    (force headList
+                                       (case (unConstrData txIn) [(\l r -> r)]))
+                                    ref)
+                                 [(findInputByOutRef ref txIns), txIn])
+                          , inputs ])
+                       [caseList'])))
             (\z f xs -> case xs [f, z]))
          (fix1
             (\countInputsAtScript scriptHash inputs ->
